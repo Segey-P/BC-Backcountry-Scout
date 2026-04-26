@@ -1,20 +1,15 @@
 import asyncio
 import pytest
 
-from report_assembler import (
-    RoadEvent,
-    WeatherReport,
-    FireIncident,
-    Advisory,
-    assemble_report,
-    run_all_fetchers,
-)
+from fetchers.drivebc import RoadEvent
+from fetchers.weather import WeatherReport
+from fetchers.wildfire import FireIncident
+from fetchers.wildlife_news import Advisory
+from report_assembler import assemble_report, run_all_fetchers
 
 
 def test_assemble_report_basic():
     """Test basic report generation with minimal data."""
-    from fetchers.weather import WeatherReport
-
     road_events = []
     weather = WeatherReport(
         current_temp=12,
@@ -48,9 +43,6 @@ def test_assemble_report_basic():
 
 def test_assemble_report_with_events():
     """Test report with road events and fires."""
-    from fetchers.drivebc import RoadEvent
-    from fetchers.weather import WeatherReport
-
     road_events = [
         RoadEvent(
             headline="Hwy 99 closure at Whistler",
@@ -76,6 +68,7 @@ def test_assemble_report_with_events():
             name="Mamquam Fire",
             stage_of_control="Out of Control",
             size_hectares=150,
+            geometry={},
             distance_to_destination_km=5.2,
         )
     ]
@@ -86,6 +79,7 @@ def test_assemble_report_with_events():
             summary="Bear sighting reported 2 days ago",
             link="https://example.com",
             date="2026-04-24",
+            reliability_tier="semi-official",
         )
     ]
 
@@ -123,8 +117,6 @@ def test_assemble_report_no_weather():
 
 def test_assemble_report_length_truncation():
     """Test that extremely long input is truncated to <1500 chars."""
-    from fetchers.weather import WeatherReport
-
     long_name = "A" * 500
     report = assemble_report(
         destination_name=long_name,

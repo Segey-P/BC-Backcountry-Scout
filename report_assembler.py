@@ -1,27 +1,11 @@
 import asyncio
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
 from fetchers.drivebc import RoadEvent, fetch_drivebc_events
 from fetchers.weather import WeatherReport, fetch_weather
-
-
-@dataclass
-class FireIncident:
-    name: str
-    stage_of_control: str
-    size_hectares: float
-    distance_to_destination_km: float
-
-
-@dataclass
-class Advisory:
-    source: str
-    category: str
-    summary: str
-    link: Optional[str]
-    date: str
+from fetchers.wildfire import FireIncident, fetch_wildfire
+from fetchers.wildlife_news import Advisory, fetch_wildlife_news
 
 
 def assemble_report(
@@ -102,18 +86,6 @@ def assemble_report(
     return message
 
 
-async def mock_fetch_wildfire(corridor_polygon, destination) -> list:
-    """Mock wildfire fetcher for testing (Module 7)."""
-    await asyncio.sleep(0.1)
-    return []
-
-
-async def mock_fetch_wildlife_news(corridor_polygon, destination_name) -> list:
-    """Mock wildlife/news fetcher for testing (Module 8)."""
-    await asyncio.sleep(0.1)
-    return []
-
-
 async def run_all_fetchers(
     corridor_polygon, start_point: tuple, destination_point: tuple, destination_name: str
 ) -> dict:
@@ -126,48 +98,22 @@ async def run_all_fetchers(
         "advisories": [],
     }
 
-    try:
-        road_events = await asyncio.wait_for(
-            asyncio.to_thread(fetch_drivebc_events, corridor_polygon),
-            timeout=8,
-        )
-        results["road_events"] = road_events
-    except asyncio.TimeoutError:
-        pass
-    except Exception:
-        pass
+    async def _run(coro):
+        try:
+            return await asyncio.wait_for(coro, timeout=8)
+        except (asyncio.TimeoutError, Exception):
+            return None
 
-    try:
-        weather = await asyncio.wait_for(
-            asyncio.to_thread(fetch_weather, destination_point[0], destination_point[1]),
-            timeout=8,
-        )
-        results["weather"] = weather
-    except asyncio.TimeoutError:
-        pass
-    except Exception:
-        pass
+    road_events, weather, fires, advisories = await asyncio.gather(
+        _run(asyncio.to_thread(fetch_drivebc_events, corridor_polygon)),
+        _run(asyncio.to_thread(fetch_weather, destination_point[0], destination_point[1])),
+        _run(asyncio.to_thread(fetch_wildfire, corridor_polygon, destination_point)),
+        _run(asyncio.to_thread(fetch_wildlife_news, corridor_polygon, destination_name)),
+    )
 
-    try:
-        fires = await asyncio.wait_for(
-            mock_fetch_wildfire(corridor_polygon, destination_point),
-            timeout=8,
-        )
-        results["fires"] = fires
-    except asyncio.TimeoutError:
-        pass
-    except Exception:
-        pass
-
-    try:
-        advisories = await asyncio.wait_for(
-            mock_fetch_wildlife_news(corridor_polygon, destination_name),
-            timeout=8,
-        )
-        results["advisories"] = advisories
-    except asyncio.TimeoutError:
-        pass
-    except Exception:
-        pass
+    results["road_events"] = road_events or []
+    results["weather"] = weather
+    results["fires"] = fires or []
+    results["advisories"] = advisories or []
 
     return results
