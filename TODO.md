@@ -17,7 +17,22 @@ All decisions finalized. Specs locked. Ready for implementation.
 - [x] Module 7: Wildfire fetcher — `fetchers/wildfire.py` + `tests/test_wildfire.py`. 9 tests pass.
 - [x] Module 8: Wildlife/news fetcher — `fetchers/wildlife_news.py` + `tests/test_wildlife_news.py`. 17 tests pass.
 - [x] Module 9: Report assembler — `report_assembler.py` + `tests/test_report_assembler.py`. 6 tests pass.
-- [ ] Module 10: Oracle Cloud hosting setup
+- [x] Module 10: Oracle Cloud hosting setup — `deploy/bcscout.service` + `deploy/setup.sh` + `.env.example`
+
+---
+
+## Phase 1 Complete ✓
+
+All 10 modules shipped. Bot is ready to deploy.
+
+**Next: Deploy to Oracle Cloud**
+
+- [ ] Provision Oracle Cloud Always-Free ARM VM (Ubuntu 22.04 LTS)
+- [ ] SSH in and run: `bash deploy/setup.sh`
+- [ ] Edit `.env` with real `TELEGRAM_BOT_TOKEN`
+- [ ] Start service: `sudo systemctl start bcscout`
+- [ ] Smoke-test: send `/start` from Telegram
+- [ ] Phase 2 planning — proactive alerts for trip destination area
 
 ---
 
@@ -37,6 +52,9 @@ All decisions finalized. Specs locked. Ready for implementation.
 
 ---
 
-## Ready to Build
+## Phase 2 Backlog (post-deploy)
 
-Next step: Copy the Module 1 prompt from `specs/context-build-prompts.md` and paste into Claude Code on the web (claude.ai/code).
+- Proactive alerts when conditions change for an active session's destination
+- Open-access mode (remove JSON allowlist)
+- Live GPS location support via Telegram location message
+- Environment Canada CAP alert full XML parsing (replace RSS stub)
