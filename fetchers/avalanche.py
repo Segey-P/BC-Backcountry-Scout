@@ -150,13 +150,14 @@ def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
     for url in candidate_urls:
         try:
             resp = httpx.get(url, timeout=_TIMEOUT, headers=headers)
-            logger.info("Probe %s → %d — %s", url[:100], resp.status_code, resp.text[:500])
+            logger.info("Probe %s → %d", url[:100], resp.status_code)
             if resp.status_code == 200:
                 data = resp.json()
-                # /products (no ID) returns a list — find matching region
                 if isinstance(data, list):
-                    match = next((p for p in data if p.get("areaId") == hash_id or p.get("area_id") == hash_id), None)
-                    data = match or (data[0] if data else {})
+                    data = data[0] if data else {}
+                # Log keys and first 2000 chars to see full structure
+                logger.info("Product keys: %s", list(data.keys()) if isinstance(data, dict) else type(data))
+                logger.info("Product data: %s", str(data)[:2000])
                 return _parse_forecast(hash_id, region_name, data)
         except Exception as exc:
             logger.error("Probe error %s: %s", url, exc)
