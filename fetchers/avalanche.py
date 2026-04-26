@@ -140,30 +140,25 @@ def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
     )
     logger.info("Nearest region: %s (id: %s...)", region_name, hash_id[:16])
 
-    # Log full properties of nearest feature to discover slug/identifiers
-    logger.info("Nearest feature props: %s", str(props)[:400])
-    logger.info("Nearest feature id: %s", hash_id)
-
-    # Try multiple forecast URL patterns
+    # Try /products endpoint (research suggests this is the correct path)
     candidate_urls = [
-        f"https://api.avalanche.ca/forecasts/en/forecasts/{hash_id}",
-        f"https://api.avalanche.ca/forecasts/en/areas/{hash_id}",
-        f"https://api.avalanche.ca/forecasts/en/public/forecasts/{hash_id}",
-        f"https://api.avalanche.ca/forecasts/en/forecasts?id={hash_id}",
+        f"https://api.avalanche.ca/forecasts/en/products/{hash_id}",
+        f"https://api.avalanche.ca/forecasts/en/products?area_id={hash_id}",
+        f"https://api.avalanche.ca/forecasts/en/products",
     ]
-    # Also try with any slug found in properties
-    for slug_key in ("slug", "name", "externalId", "regionId", "code"):
-        slug = props.get(slug_key)
-        if slug:
-            candidate_urls.insert(0, f"https://api.avalanche.ca/forecasts/en/forecasts/{slug}")
 
     for url in candidate_urls:
         try:
             resp = httpx.get(url, timeout=_TIMEOUT, headers=headers)
-            logger.info("Forecast attempt %s → %d — %s", url[:100], resp.status_code, resp.text[:200])
+            logger.info("Probe %s → %d — %s", url[:100], resp.status_code, resp.text[:500])
             if resp.status_code == 200:
-                return _parse_forecast(hash_id, region_name, resp.json())
+                data = resp.json()
+                # /products (no ID) returns a list — find matching region
+                if isinstance(data, list):
+                    match = next((p for p in data if p.get("areaId") == hash_id or p.get("area_id") == hash_id), None)
+                    data = match or (data[0] if data else {})
+                return _parse_forecast(hash_id, region_name, data)
         except Exception as exc:
-            logger.error("Forecast fetch error %s: %s", url, exc)
+            logger.error("Probe error %s: %s", url, exc)
 
     return None
