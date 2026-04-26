@@ -14,8 +14,8 @@ All decisions finalized. Specs locked. Ready for implementation.
 - [x] Module 4: Route + buffer — `route_buffer.py` + `tests/test_route_buffer.py`. 9 tests pass.
 - [x] Module 5: DriveBC fetcher — `fetchers/drivebc.py` + `tests/test_drivebc.py`. 13 tests pass.
 - [x] Module 6: Weather fetcher — `fetchers/weather.py` + `tests/test_weather.py`. 7 tests pass.
-- [ ] Module 7: Wildfire fetcher
-- [ ] Module 8: Wildlife/news fetcher (includes Parks Canada, Hunting BC)
+- [x] Module 7: Wildfire fetcher — `fetchers/wildfire.py` + `tests/test_wildfire.py`. 9 tests pass.
+- [x] Module 8: Wildlife/news fetcher — `fetchers/wildlife_news.py` + `tests/test_wildlife_news.py`. 17 tests pass.
 - [ ] Module 9: Report assembler
 - [ ] Module 10: Oracle Cloud hosting setup
 
