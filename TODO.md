@@ -8,7 +8,7 @@ All decisions finalized. Specs locked. Ready for implementation.
 
 ## Build Checklist (Next Actions)
 
-- [ ] **Module 1: Telegram skeleton** — Start with this. Paste the prompt from `specs/context-build-prompts.md` into Claude Code.
+- [x] **Module 1: Telegram skeleton** — `bot.py` + `requirements.txt`. BotHandler class, /start with disclaimer, all other commands stubbed, async long-poll.
 - [ ] Module 2: Session manager
 - [ ] Module 3: Geocoder
 - [ ] Module 4: Route + buffer
