@@ -45,9 +45,8 @@ _WELCOME = (
     "I pull road conditions, weather, wildfires, and wildlife advisories "
     "for your BC backcountry destination — in one message.\n\n"
     "<b>Commands</b>\n"
-    "/scout &lt;destination&gt; — Full pre-trip report\n"
+    "/scout — Full pre-trip report\n"
     "/from &lt;location&gt; — Set your starting point\n"
-    "/whereami — Show current session\n"
     "/clear — Reset session\n"
     "/help — Show this list\n\n"
     "⚠️ <b>Safety notice</b>\n"
@@ -56,19 +55,17 @@ _WELCOME = (
 
 _HELP = (
     "<b>BC Backcountry Scout — Commands</b>\n\n"
-    "/scout &lt;destination&gt; — Full pre-trip report\n"
+    "/scout — Full pre-trip report\n"
     "/from &lt;location&gt; — Set your starting point\n"
-    "/whereami — Show current session state\n"
     "/clear — Reset session\n"
     "/help — Show this list"
 )
 
-_KNOWN_COMMANDS = ["/scout", "/from", "/whereami", "/clear", "/help", "/start"]
+_KNOWN_COMMANDS = ["/scout", "/from", "/clear", "/help", "/start"]
 
 _BOT_COMMANDS = [
     BotCommand("scout", "Full pre-trip report for a BC destination"),
     BotCommand("from", "Set your starting point"),
-    BotCommand("whereami", "Show current session"),
     BotCommand("clear", "Reset session"),
     BotCommand("help", "Show all commands"),
 ]
@@ -118,7 +115,6 @@ class BotHandler:
         self.app.add_handler(CommandHandler("help", self._cmd_help))
         self.app.add_handler(CommandHandler("scout", self._cmd_scout))
         self.app.add_handler(CommandHandler("from", self._cmd_from))
-        self.app.add_handler(CommandHandler("whereami", self._cmd_whereami))
         self.app.add_handler(CommandHandler("clear", self._cmd_clear))
         self.app.add_handler(CallbackQueryHandler(self._on_confirm_button, pattern="^scout_"))
         self.app.add_handler(CallbackQueryHandler(self._on_post_report_button, pattern="^ext_"))
@@ -136,7 +132,13 @@ class BotHandler:
         user_id = update.effective_user.id
         query = " ".join(context.args).strip() if context.args else ""
         if not query:
-            await update.message.reply_text("Usage: /scout &lt;destination&gt;", parse_mode="HTML")
+            session = load_session(user_id) or {}
+            await update.message.reply_text(
+                "🔍 <b>I am here to help.</b>\n\nWhere would you like to go today?",
+                parse_mode="HTML",
+            )
+            session["waiting_for"] = "scout_destination"
+            save_session(user_id, session)
             return
         await self._run_scout_flow(update.message, query, user_id)
 
@@ -347,23 +349,6 @@ class BotHandler:
             "starting_point": {"name": loc.name, "lat": loc.lat, "lon": loc.lon, "source": "manual"},
         })
         await update.message.reply_text(f"Starting point set to: {html.escape(loc.name)}", parse_mode="HTML")
-
-    async def _cmd_whereami(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = update.effective_user.id
-        session = load_session(user_id)
-        if not session:
-            await update.message.reply_text("No active session. Use /from to set a starting point.")
-            return
-        start = session.get("starting_point")
-        dest = session.get("last_destination")
-        lines = []
-        if start:
-            lines.append(f"Start: {html.escape(start['name'])}")
-        if dest:
-            lines.append(f"Last destination: {html.escape(dest['name'])}")
-        if not lines:
-            lines.append("Session active but no locations set yet.")
-        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
     async def _cmd_clear(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_session(update.effective_user.id)
