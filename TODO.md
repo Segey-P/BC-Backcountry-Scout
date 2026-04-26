@@ -12,8 +12,8 @@ All decisions finalized. Specs locked. Ready for implementation.
 - [x] Module 2: Session manager — `session.py` + `tests/test_session.py`. All 11 tests pass.
 - [x] Module 3: Geocoder — `geocoder.py` + `tests/test_geocoder.py`. 15 tests pass.
 - [x] Module 4: Route + buffer — `route_buffer.py` + `tests/test_route_buffer.py`. 9 tests pass.
-- [ ] Module 5: DriveBC fetcher
-- [ ] Module 6: Weather fetcher
+- [x] Module 5: DriveBC fetcher — `fetchers/drivebc.py` + `tests/test_drivebc.py`. 13 tests pass.
+- [x] Module 6: Weather fetcher — `fetchers/weather.py` + `tests/test_weather.py`. 7 tests pass.
 - [ ] Module 7: Wildfire fetcher
 - [ ] Module 8: Wildlife/news fetcher (includes Parks Canada, Hunting BC)
 - [x] Module 9: Report assembler — `report_assembler.py` + `tests/test_report_assembler.py`. 6 tests pass. All 41 tests pass overall.
