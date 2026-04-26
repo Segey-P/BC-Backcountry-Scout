@@ -119,3 +119,54 @@ def test_partial_hourly_data():
         with patch("fetchers.weather._fetch_ec_alerts", return_value=[]):
             report = fetch_weather(49.7016, -123.1558)
     assert len(report.forecast_24h) == 2
+
+
+# --- alpine detection ---
+
+_ALPINE_OPEN_METEO = {
+    **_SAMPLE_OPEN_METEO,
+    "elevation": 1850.0,
+    "hourly": {
+        **_SAMPLE_OPEN_METEO["hourly"],
+        "snowfall": [2.0] * 24,
+        "snow_depth": [45.0] * 24,
+        "windgusts_10m": [60.0] * 24,
+    },
+}
+
+
+def test_alpine_flag_set_above_threshold():
+    with patch("fetchers.weather.httpx.get", return_value=_mock_response(_ALPINE_OPEN_METEO)):
+        with patch("fetchers.weather._fetch_ec_alerts", return_value=[]):
+            report = fetch_weather(50.05, -122.96)  # Whistler area
+    assert report.is_alpine is True
+    assert report.elevation == 1850.0
+
+
+def test_alpine_fields_populated():
+    with patch("fetchers.weather.httpx.get", return_value=_mock_response(_ALPINE_OPEN_METEO)):
+        with patch("fetchers.weather._fetch_ec_alerts", return_value=[]):
+            report = fetch_weather(50.05, -122.96)
+    assert report.snow_depth == 45.0
+    assert report.snowfall_24h == pytest.approx(48.0)  # 24 * 2.0
+    assert report.wind_gusts == 60.0
+
+
+def test_non_alpine_flag_below_threshold():
+    lowland = {**_SAMPLE_OPEN_METEO, "elevation": 50.0}
+    with patch("fetchers.weather.httpx.get", return_value=_mock_response(lowland)):
+        with patch("fetchers.weather._fetch_ec_alerts", return_value=[]):
+            report = fetch_weather(49.28, -123.12)  # Vancouver
+    assert report.is_alpine is False
+
+
+def test_alpine_missing_from_mock_defaults_to_false():
+    # _SAMPLE_OPEN_METEO has no elevation key — should not crash and is_alpine=False
+    with patch("fetchers.weather.httpx.get", return_value=_mock_response(_SAMPLE_OPEN_METEO)):
+        with patch("fetchers.weather._fetch_ec_alerts", return_value=[]):
+            report = fetch_weather(49.7016, -123.1558)
+    assert report.is_alpine is False
+    assert report.elevation is None
+    assert report.snow_depth is None
+    assert report.snowfall_24h is None
+    assert report.wind_gusts is None

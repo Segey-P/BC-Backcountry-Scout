@@ -161,6 +161,88 @@ async def test_run_all_fetchers():
     assert results["weather"] is not None or results["weather"] is None
 
 
+def test_assemble_report_alpine_weather():
+    """Alpine destinations show mountain-specific weather section."""
+    weather = WeatherReport(
+        current_temp=-3,
+        current_wind=40,
+        current_precip=0,
+        forecast_24h=[
+            {"time": "2026-04-26T12:00", "temp": -5, "wind": 45, "precip": 0.0, "freezing_level": 1700}
+        ],
+        freezing_level=1700,
+        alerts=[],
+        timestamp="2026-04-26T14:30:00Z",
+        elevation=1900.0,
+        snow_depth=60.0,
+        snowfall_24h=5.0,
+        wind_gusts=75.0,
+        is_alpine=True,
+    )
+    report = assemble_report(
+        destination_name="Elfin Lakes",
+        start_name="Squamish, BC",
+        road_events=[],
+        weather=weather,
+        fires=[],
+        advisories=[],
+    )
+    assert "Alpine Weather" in report
+    assert "1900" in report
+    assert "Snow depth" in report
+    assert "Recent snowfall" in report
+    assert "gusts" in report
+    assert len(report) < 1500
+
+
+def test_assemble_report_alpine_freezing_level_warning():
+    """Warn when freezing level is near or below terrain elevation."""
+    weather = WeatherReport(
+        current_temp=2,
+        current_wind=20,
+        current_precip=0,
+        forecast_24h=[],
+        freezing_level=1850.0,
+        alerts=[],
+        timestamp="2026-04-26T14:30:00Z",
+        elevation=1900.0,
+        is_alpine=True,
+    )
+    report = assemble_report(
+        destination_name="Black Tusk",
+        start_name="Squamish, BC",
+        road_events=[],
+        weather=weather,
+        fires=[],
+        advisories=[],
+    )
+    assert "Freezing level near or below terrain" in report
+
+
+def test_assemble_report_alpine_no_freezing_warning_when_high():
+    """No freezing level warning when freezing level is well above terrain."""
+    weather = WeatherReport(
+        current_temp=5,
+        current_wind=10,
+        current_precip=0,
+        forecast_24h=[],
+        freezing_level=2800.0,
+        alerts=[],
+        timestamp="2026-04-26T14:30:00Z",
+        elevation=1900.0,
+        is_alpine=True,
+    )
+    report = assemble_report(
+        destination_name="Black Tusk",
+        start_name="Squamish, BC",
+        road_events=[],
+        weather=weather,
+        fires=[],
+        advisories=[],
+    )
+    assert "Freezing level near or below terrain" not in report
+
+
 def test_assemble_report_markdown_escaping():
     """Test that MarkdownV2 special chars are escaped."""
     report = assemble_report(

@@ -5,6 +5,7 @@ import httpx
 
 _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 _TIMEOUT = 3.0
+_ALPINE_ELEVATION_M = 1200
 
 
 @dataclass
@@ -16,13 +17,21 @@ class WeatherReport:
     freezing_level: float | None
     alerts: list[str]
     timestamp: str
+    elevation: float | None = None
+    snow_depth: float | None = None
+    snowfall_24h: float | None = None
+    wind_gusts: float | None = None
+    is_alpine: bool = False
 
 
 def fetch_weather(lat: float, lon: float) -> WeatherReport:
     params = {
         "latitude": lat,
         "longitude": lon,
-        "hourly": "temperature_2m,windspeed_10m,precipitation,freezinglevel_height",
+        "hourly": (
+            "temperature_2m,windspeed_10m,precipitation,freezinglevel_height,"
+            "snowfall,snow_depth,windgusts_10m"
+        ),
         "current_weather": "true",
         "forecast_days": 2,
         "timezone": "auto",
@@ -39,12 +48,16 @@ def fetch_weather(lat: float, lon: float) -> WeatherReport:
 
     cw = data.get("current_weather") or {}
     hourly = data.get("hourly") or {}
+    elevation = data.get("elevation")
 
     times = hourly.get("time") or []
     temps = hourly.get("temperature_2m") or []
     winds = hourly.get("windspeed_10m") or []
     precips = hourly.get("precipitation") or []
     freezing = hourly.get("freezinglevel_height") or []
+    snowfalls = hourly.get("snowfall") or []
+    snow_depths = hourly.get("snow_depth") or []
+    gusts = hourly.get("windgusts_10m") or []
 
     forecast_24h = [
         {"time": t, "temp": te, "wind": wi, "precip": pr, "freezing_level": fr}
@@ -63,6 +76,11 @@ def fetch_weather(lat: float, lon: float) -> WeatherReport:
         freezing_level=freezing[0] if freezing else None,
         alerts=alerts,
         timestamp=cw.get("time") or datetime.now(timezone.utc).isoformat(),
+        elevation=elevation,
+        snow_depth=snow_depths[0] if snow_depths else None,
+        snowfall_24h=sum(snowfalls[:24]) if snowfalls else None,
+        wind_gusts=gusts[0] if gusts else None,
+        is_alpine=(elevation or 0) > _ALPINE_ELEVATION_M,
     )
 
 
@@ -77,7 +95,6 @@ def _fetch_ec_alerts(lat: float, lon: float) -> list[str]:
         )
         if response.status_code != 200:
             return []
-        # Extract <title> lines from RSS items (crude but avoids an XML dep for MVP)
         alerts = []
         for line in response.text.splitlines():
             line = line.strip()
@@ -85,7 +102,7 @@ def _fetch_ec_alerts(lat: float, lon: float) -> list[str]:
                 title = line.replace("<title>", "").replace("</title>", "").strip()
                 if title:
                     alerts.append(title)
-        return alerts[:5]  # cap at 5 to keep report short
+        return alerts[:5]
     except Exception:
         return []
 

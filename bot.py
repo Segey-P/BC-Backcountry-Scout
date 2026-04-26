@@ -1,8 +1,9 @@
 import logging
 import os
+from difflib import get_close_matches
 
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 from geocoder import geocode_destination
 from report_assembler import assemble_report, run_all_fetchers
@@ -50,6 +51,8 @@ _HELP = (
     "/help — Show this list"
 )
 
+_KNOWN_COMMANDS = ["/scout", "/from", "/whereami", "/clear", "/help", "/start"]
+
 
 class BotHandler:
     def __init__(self, token: str):
@@ -63,6 +66,8 @@ class BotHandler:
         self.app.add_handler(CommandHandler("from", self._cmd_from))
         self.app.add_handler(CommandHandler("whereami", self._cmd_whereami))
         self.app.add_handler(CommandHandler("clear", self._cmd_clear))
+        # Catch unknown /commands and suggest the closest match
+        self.app.add_handler(MessageHandler(filters.COMMAND, self._cmd_unknown))
 
     async def _cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(_WELCOME, parse_mode="HTML")
@@ -159,6 +164,29 @@ class BotHandler:
     async def _cmd_clear(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_session(update.effective_user.id)
         await update.message.reply_text("Session cleared.")
+
+    async def _cmd_unknown(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        text = update.message.text or ""
+        typed_cmd = text.split()[0].lower()  # e.g. "/scount"
+        # Strip bot username suffix if present (e.g. /scout@BotName)
+        typed_cmd = typed_cmd.split("@")[0]
+        matches = get_close_matches(typed_cmd, _KNOWN_COMMANDS, n=1, cutoff=0.6)
+        if matches:
+            suggestion = matches[0]
+            rest = text[len(typed_cmd):].strip()
+            example = f"{suggestion} {rest}".strip() if rest else suggestion
+            await update.message.reply_text(
+                f"Unknown command <b>{typed_cmd}</b>.\n"
+                f"Did you mean <b>{suggestion}</b>?\n\n"
+                f"Try: <code>{example}</code>\n\n"
+                "Use /help to see all commands.",
+                parse_mode="HTML",
+            )
+        else:
+            await update.message.reply_text(
+                f"Unknown command <b>{typed_cmd}</b>. Use /help to see all commands.",
+                parse_mode="HTML",
+            )
 
     def run(self):
         logger.info("Starting BC Backcountry Scout (long-poll)")
