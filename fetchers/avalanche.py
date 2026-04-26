@@ -4,14 +4,17 @@ from dataclasses import dataclass, field
 
 import httpx
 
-_TIMEOUT = 8.0
+_TIMEOUT = 10.0
 _AREAS_URL = "https://api.avalanche.ca/forecasts/en/areas"
-_FORECAST_URL = "https://api.avalanche.ca/forecasts/en/forecasts/{}"
+_PRODUCTS_URL = "https://api.avalanche.ca/forecasts/en/products"
 
 logger = logging.getLogger(__name__)
 
 _DANGER_ICON = {1: "✅", 2: "🟡", 3: "🟠", 4: "🔴", 5: "⛔"}
 _DANGER_LABEL = {1: "Low", 2: "Moderate", 3: "Considerable", 4: "High", 5: "Extreme"}
+_DANGER_VALUE = {
+    "low": 1, "moderate": 2, "considerable": 3, "high": 4, "extreme": 5,
+}
 
 
 @dataclass
@@ -47,69 +50,69 @@ def _haversine_km(lat1, lon1, lat2, lon2) -> float:
 
 
 def _bbox_center(bbox: list) -> tuple[float, float]:
-    """GeoJSON bbox is [minLon, minLat, maxLon, maxLat] → (lat, lon)."""
+    """GeoJSON bbox [minLon, minLat, maxLon, maxLat] → (lat, lon)."""
     return (bbox[1] + bbox[3]) / 2, (bbox[0] + bbox[2]) / 2
 
 
-def _extract_int(raw) -> int:
-    if isinstance(raw, (int, float)):
-        return int(raw)
-    if isinstance(raw, dict):
-        for key in ("value", "rating", "dangerRating"):
-            val = raw.get(key)
-            if val is not None:
-                return _extract_int(val)
-    return 0
-
-
-def _parse_danger(raw) -> DangerLevel:
-    val = max(0, min(5, _extract_int(raw)))
+def _parse_danger_str(raw) -> DangerLevel:
+    """Parse danger value from string ('considerable') or dict."""
+    val_str = ""
+    if isinstance(raw, str):
+        val_str = raw.lower()
+    elif isinstance(raw, dict):
+        rating = raw.get("rating") or raw
+        if isinstance(rating, dict):
+            val_str = (rating.get("value") or "").lower()
+        else:
+            val_str = str(rating).lower()
+    val = _DANGER_VALUE.get(val_str, 0)
     return DangerLevel(value=val, label=_DANGER_LABEL.get(val, "No Rating"), icon=_DANGER_ICON.get(val, "⬜"))
 
 
-def _parse_forecast(hash_id: str, region_name: str, data: dict) -> "AvalancheReport | None":
-    raw_ratings = data.get("dangerRatings") or []
+def _parse_product(product: dict, area_hash: str) -> "AvalancheReport | None":
+    report = product.get("report") or {}
+    raw_ratings = report.get("dangerRatings") or []
+    region_name = report.get("title") or area_hash[:12]
+
+    # Strip HTML from highlights
+    highlights_raw = report.get("highlights") or ""
+    import re
+    highlights = re.sub(r"<[^>]+>", " ", highlights_raw).strip()
+    highlights = re.sub(r"\s+", " ", highlights)[:300]
+
     days: list[DayDanger] = []
-
     for day_raw in raw_ratings[:3]:
-        dr = day_raw.get("dangerRating") or day_raw
         date_raw = day_raw.get("date") or {}
-        if isinstance(date_raw, dict):
-            date_str = date_raw.get("display") or date_raw.get("value") or ""
-        else:
-            date_str = str(date_raw)
+        date_str = date_raw.get("display") or date_raw.get("value") or ""
 
-        alp = dr.get("alp") or dr.get("alpine") or 0
-        tln = dr.get("tln") or dr.get("treeline") or 0
-        btl = dr.get("btl") or dr.get("belowTreeline") or dr.get("below_treeline") or 0
+        ratings = day_raw.get("ratings") or day_raw.get("dangerRating") or {}
+        alp = ratings.get("alp") or ratings.get("alpine") or {}
+        tln = ratings.get("tln") or ratings.get("treeline") or {}
+        btl = ratings.get("btl") or ratings.get("belowTreeline") or {}
 
         days.append(DayDanger(
             date=date_str,
-            alpine=_parse_danger(alp),
-            treeline=_parse_danger(tln),
-            below_treeline=_parse_danger(btl),
+            alpine=_parse_danger_str(alp),
+            treeline=_parse_danger_str(tln),
+            below_treeline=_parse_danger_str(btl),
         ))
 
     if not days:
-        logger.warning("No dangerRatings in forecast. Keys: %s", list(data.keys()))
+        logger.warning("No dangerRatings in report. Report keys: %s", list(report.keys()))
         return None
 
-    highlights = data.get("highlights") or ""
-    if isinstance(highlights, list):
-        highlights = " ".join(str(h) for h in highlights)
-
     return AvalancheReport(
-        region_id=hash_id,
+        region_id=area_hash,
         region_name=region_name,
         days=days,
-        highlights=str(highlights)[:400].strip(),
+        highlights=highlights,
     )
 
 
 def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
     headers = {"User-Agent": "BCBackcountryScout/1.0", "Accept": "application/json"}
 
-    # Step 1: fetch all regions as GeoJSON
+    # Step 1: fetch all region boundaries and find nearest by bbox centroid
     try:
         areas_resp = httpx.get(_AREAS_URL, timeout=_TIMEOUT, headers=headers)
         if areas_resp.status_code != 200:
@@ -121,10 +124,8 @@ def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
         return None
 
     if not features:
-        logger.warning("No features in areas response")
         return None
 
-    # Step 2: find nearest region by bbox centroid
     def _dist(f):
         bbox = f.get("bbox")
         if not bbox or len(bbox) < 4:
@@ -133,33 +134,35 @@ def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
         return _haversine_km(lat, lon, clat, clon)
 
     nearest = min(features, key=_dist)
-    hash_id = nearest["id"]
-    props = nearest.get("properties") or {}
-    region_name = (
-        props.get("name") or props.get("regionName") or props.get("slug") or hash_id[:12]
+    area_hash = nearest["id"]
+    logger.info("Nearest area hash: %s (centroid: %s)", area_hash[:12], nearest.get("properties", {}).get("centroid"))
+
+    # Step 2: fetch ALL products and find the one matching our area hash
+    try:
+        prod_resp = httpx.get(_PRODUCTS_URL, timeout=_TIMEOUT, headers=headers)
+        logger.info("Products endpoint: %d", prod_resp.status_code)
+        if prod_resp.status_code != 200:
+            return None
+        products = prod_resp.json()
+    except Exception as exc:
+        logger.error("Products fetch error: %s", exc)
+        return None
+
+    if not isinstance(products, list) or not products:
+        return None
+
+    # Find product where area.id matches our nearest region hash
+    match = next(
+        (p for p in products if (p.get("area") or {}).get("id") == area_hash),
+        None,
     )
-    logger.info("Nearest region: %s (id: %s...)", region_name, hash_id[:16])
+    if not match:
+        logger.warning(
+            "No product matched area hash %s. Available area IDs: %s",
+            area_hash[:12],
+            [p.get("area", {}).get("id", "?")[:12] for p in products[:5]],
+        )
+        return None
 
-    # Try /products endpoint (research suggests this is the correct path)
-    candidate_urls = [
-        f"https://api.avalanche.ca/forecasts/en/products/{hash_id}",
-        f"https://api.avalanche.ca/forecasts/en/products?area_id={hash_id}",
-        f"https://api.avalanche.ca/forecasts/en/products",
-    ]
-
-    for url in candidate_urls:
-        try:
-            resp = httpx.get(url, timeout=_TIMEOUT, headers=headers)
-            logger.info("Probe %s → %d", url[:100], resp.status_code)
-            if resp.status_code == 200:
-                data = resp.json()
-                if isinstance(data, list):
-                    data = data[0] if data else {}
-                # Log keys and first 2000 chars to see full structure
-                logger.info("Product keys: %s", list(data.keys()) if isinstance(data, dict) else type(data))
-                logger.info("Product data: %s", str(data)[:2000])
-                return _parse_forecast(hash_id, region_name, data)
-        except Exception as exc:
-            logger.error("Probe error %s: %s", url, exc)
-
-    return None
+    logger.info("Matched product: %s", match.get("report", {}).get("title"))
+    return _parse_product(match, area_hash)
