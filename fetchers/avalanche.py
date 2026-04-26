@@ -140,14 +140,30 @@ def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
     )
     logger.info("Nearest region: %s (id: %s...)", region_name, hash_id[:16])
 
-    # Step 3: fetch forecast using hash ID
-    url = _FORECAST_URL.format(hash_id)
-    try:
-        resp = httpx.get(url, timeout=_TIMEOUT, headers=headers)
-        logger.info("Forecast %s → %d — %s", url[:80], resp.status_code, resp.text[:300])
-        if resp.status_code != 200:
-            return None
-        return _parse_forecast(hash_id, region_name, resp.json())
-    except Exception as exc:
-        logger.error("Forecast fetch error: %s", exc)
-        return None
+    # Log full properties of nearest feature to discover slug/identifiers
+    logger.info("Nearest feature props: %s", str(props)[:400])
+    logger.info("Nearest feature id: %s", hash_id)
+
+    # Try multiple forecast URL patterns
+    candidate_urls = [
+        f"https://api.avalanche.ca/forecasts/en/forecasts/{hash_id}",
+        f"https://api.avalanche.ca/forecasts/en/areas/{hash_id}",
+        f"https://api.avalanche.ca/forecasts/en/public/forecasts/{hash_id}",
+        f"https://api.avalanche.ca/forecasts/en/forecasts?id={hash_id}",
+    ]
+    # Also try with any slug found in properties
+    for slug_key in ("slug", "name", "externalId", "regionId", "code"):
+        slug = props.get(slug_key)
+        if slug:
+            candidate_urls.insert(0, f"https://api.avalanche.ca/forecasts/en/forecasts/{slug}")
+
+    for url in candidate_urls:
+        try:
+            resp = httpx.get(url, timeout=_TIMEOUT, headers=headers)
+            logger.info("Forecast attempt %s → %d — %s", url[:100], resp.status_code, resp.text[:200])
+            if resp.status_code == 200:
+                return _parse_forecast(hash_id, region_name, resp.json())
+        except Exception as exc:
+            logger.error("Forecast fetch error %s: %s", url, exc)
+
+    return None
