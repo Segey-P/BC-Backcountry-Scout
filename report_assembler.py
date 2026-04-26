@@ -2,11 +2,15 @@ import asyncio
 import html
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fetchers.drivebc import RoadEvent, fetch_drivebc_events
+from fetchers.eta import ETAResult, fetch_eta
 from fetchers.weather import WeatherReport, fetch_weather
 from fetchers.wildfire import FireIncident, fetch_wildfire
 from fetchers.wildlife_news import Advisory, fetch_wildlife_news
+
+_PACIFIC = ZoneInfo("America/Vancouver")
 
 def _e(value) -> str:
     """Escape dynamic content for HTML — converts to str first so numbers are safe."""
@@ -20,6 +24,7 @@ def assemble_report(
     weather: Optional[WeatherReport],
     fires: list[FireIncident],
     advisories: list[Advisory],
+    eta: Optional[ETAResult] = None,
 ) -> str:
     """Assemble a single Telegram HTML message from fetched data."""
 
@@ -29,7 +34,7 @@ def assemble_report(
     lines.append(f"From: {_e(start_name)}")
     lines.append("")
 
-    lines.append("🚨 <b>Safety</b>")
+    lines.append("🛡️ <b>Safety</b>")
 
     if road_events:
         for event in road_events:
@@ -47,7 +52,7 @@ def assemble_report(
 
     if advisories:
         for adv in advisories:
-            lines.append(f"⚠️ {_e(adv.summary)} ({_e(adv.source)})")
+            lines.append(f"🔔 {_e(adv.summary)} ({_e(adv.source)})")
     else:
         lines.append("✅ No wildlife advisories")
 
@@ -85,7 +90,9 @@ def assemble_report(
 
     lines.append("")
 
-    lines.append("🚗 <b>Driving conditions</b>")
+    lines.append("🚗 <b>Driving</b>")
+    if eta:
+        lines.append(f"{eta.distance_text} · {eta.duration_traffic_text} with traffic")
     if road_events:
         lines.append("Monitor DriveBC for active events")
     else:
@@ -93,7 +100,7 @@ def assemble_report(
 
     lines.append("")
 
-    now = datetime.now().strftime("%H:%M %Z").replace("UTC", "PDT")
+    now = datetime.now(tz=_PACIFIC).strftime("%H:%M %Z")
     lines.append(
         f"<i>Report generated: {now}. Conditions change fast — verify before you go.</i>"
     )
@@ -116,6 +123,7 @@ async def run_all_fetchers(
         "weather": None,
         "fires": [],
         "advisories": [],
+        "eta": None,
     }
 
     async def _run(coro):
@@ -124,16 +132,18 @@ async def run_all_fetchers(
         except (asyncio.TimeoutError, Exception):
             return None
 
-    road_events, weather, fires, advisories = await asyncio.gather(
+    road_events, weather, fires, advisories, eta = await asyncio.gather(
         _run(asyncio.to_thread(fetch_drivebc_events, corridor_polygon)),
         _run(asyncio.to_thread(fetch_weather, destination_point[0], destination_point[1])),
         _run(asyncio.to_thread(fetch_wildfire, corridor_polygon, destination_point)),
         _run(asyncio.to_thread(fetch_wildlife_news, corridor_polygon, destination_name)),
+        _run(asyncio.to_thread(fetch_eta, start_point, destination_point)),
     )
 
     results["road_events"] = road_events or []
     results["weather"] = weather
     results["fires"] = fires or []
     results["advisories"] = advisories or []
+    results["eta"] = eta
 
     return results

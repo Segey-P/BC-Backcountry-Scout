@@ -140,7 +140,5 @@ def fetch_wildlife_news(
         source="Squamish Chief",
         tier="community",
     )
-    results += _stub_parks_canada()
-    results += _stub_hunting_bc()
 
     return _dedup(results)
