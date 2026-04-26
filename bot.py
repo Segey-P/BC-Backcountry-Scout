@@ -1,10 +1,11 @@
+import asyncio
 import html
 import logging
 import os
 from datetime import date
 from difflib import get_close_matches
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
@@ -14,8 +15,15 @@ from telegram.ext import (
     filters,
 )
 
+from fetchers.avalanche import fetch_avalanche
+from fetchers.weather import fetch_weather_3day
 from geocoder import geocode_destination
-from report_assembler import assemble_report, run_all_fetchers
+from report_assembler import (
+    assemble_3day_report,
+    assemble_avalanche_report,
+    assemble_report,
+    run_all_fetchers,
+)
 from route_buffer import build_route_corridor
 from session import clear_session, load_session, refresh_session, save_session
 
@@ -57,6 +65,14 @@ _HELP = (
 
 _KNOWN_COMMANDS = ["/scout", "/from", "/whereami", "/clear", "/help", "/start"]
 
+_BOT_COMMANDS = [
+    BotCommand("scout", "Full pre-trip report for a BC destination"),
+    BotCommand("from", "Set your starting point"),
+    BotCommand("whereami", "Show current session"),
+    BotCommand("clear", "Reset session"),
+    BotCommand("help", "Show all commands"),
+]
+
 
 def _build_confirmation_text(pending: dict) -> str:
     today = date.today().strftime("%b %d, %Y")
@@ -76,10 +92,26 @@ def _build_confirmation_keyboard() -> InlineKeyboardMarkup:
     ]])
 
 
+def _build_post_report_keyboard(is_alpine: bool) -> InlineKeyboardMarkup:
+    row1 = [InlineKeyboardButton("📅 3-day forecast", callback_data="ext_3day")]
+    if is_alpine:
+        row1.append(InlineKeyboardButton("🏔️ Avalanche", callback_data="ext_avalanche"))
+    row2 = [InlineKeyboardButton("🔄 Scout new destination", callback_data="ext_new")]
+    return InlineKeyboardMarkup([row1, row2])
+
+
 class BotHandler:
     def __init__(self, token: str):
-        self.app = ApplicationBuilder().token(token).build()
+        self.app = (
+            ApplicationBuilder()
+            .token(token)
+            .post_init(self._post_init)
+            .build()
+        )
         self._register_handlers()
+
+    async def _post_init(self, app):
+        await app.bot.set_my_commands(_BOT_COMMANDS)
 
     def _register_handlers(self):
         self.app.add_handler(CommandHandler("start", self._cmd_start))
@@ -89,6 +121,7 @@ class BotHandler:
         self.app.add_handler(CommandHandler("whereami", self._cmd_whereami))
         self.app.add_handler(CommandHandler("clear", self._cmd_clear))
         self.app.add_handler(CallbackQueryHandler(self._on_confirm_button, pattern="^scout_"))
+        self.app.add_handler(CallbackQueryHandler(self._on_post_report_button, pattern="^ext_"))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_text_message))
         # Catch unknown /commands last so specific handlers take priority
         self.app.add_handler(MessageHandler(filters.COMMAND, self._cmd_unknown))
@@ -105,10 +138,13 @@ class BotHandler:
         if not query:
             await update.message.reply_text("Usage: /scout &lt;destination&gt;", parse_mode="HTML")
             return
+        await self._run_scout_flow(update.message, query, user_id)
 
-        status_msg = await update.message.reply_text("Searching…")
+    async def _run_scout_flow(self, message, query_text: str, user_id: int):
+        """Geocode a destination and send the trip confirmation card."""
+        status_msg = await message.reply_text("Searching…")
 
-        matches = geocode_destination(query)
+        matches = geocode_destination(query_text)
         if not matches:
             await status_msg.edit_text(
                 "Couldn't find that in BC. Try adding a region (e.g. 'Alice Lake Squamish') or check spelling."
@@ -162,6 +198,8 @@ class BotHandler:
             corridor = build_route_corridor(start_point, dest_point)
             data = await run_all_fetchers(corridor, start_point, dest_point, pending["dest_name"])
 
+            is_alpine = data["weather"].is_alpine if data["weather"] else False
+
             report = assemble_report(
                 destination_name=pending["dest_name"],
                 start_name=pending["start_name"],
@@ -170,13 +208,19 @@ class BotHandler:
                 fires=data["fires"],
                 advisories=data["advisories"],
                 eta=data.get("eta"),
+                avalanche=data.get("avalanche"),
             )
-            await query.edit_message_text(report, parse_mode="HTML")
+            await query.edit_message_text(
+                report,
+                parse_mode="HTML",
+                reply_markup=_build_post_report_keyboard(is_alpine),
+            )
 
             session["last_destination"] = {
                 "name": pending["dest_name"],
                 "lat": pending["dest_lat"],
                 "lon": pending["dest_lon"],
+                "is_alpine": is_alpine,
             }
             session.pop("pending_trip", None)
             save_session(user_id, session)
@@ -191,48 +235,98 @@ class BotHandler:
             session["waiting_for"] = "start_update"
             save_session(user_id, session)
 
+    async def _on_post_report_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        await query.answer()
+
+        session = load_session(user_id) or {}
+        last_dest = session.get("last_destination")
+
+        if query.data == "ext_new":
+            await query.message.reply_text(
+                "🔍 <b>Scout where?</b>\n\nType your BC destination:",
+                parse_mode="HTML",
+            )
+            session["waiting_for"] = "scout_destination"
+            save_session(user_id, session)
+            return
+
+        if not last_dest:
+            await query.message.reply_text("Session expired. Use /scout to start a new search.")
+            return
+
+        lat, lon = last_dest["lat"], last_dest["lon"]
+        name = last_dest["name"]
+
+        if query.data == "ext_3day":
+            status = await query.message.reply_text("Fetching 3-day forecast…")
+            try:
+                forecasts = await asyncio.wait_for(
+                    asyncio.to_thread(fetch_weather_3day, lat, lon), timeout=8
+                )
+            except (asyncio.TimeoutError, Exception):
+                forecasts = []
+            report = assemble_3day_report(name, forecasts)
+            await status.edit_text(report, parse_mode="HTML")
+
+        elif query.data == "ext_avalanche":
+            status = await query.message.reply_text("Fetching avalanche forecast…")
+            try:
+                avx = await asyncio.wait_for(
+                    asyncio.to_thread(fetch_avalanche, lat, lon), timeout=8
+                )
+            except (asyncio.TimeoutError, Exception):
+                avx = None
+            report = assemble_avalanche_report(name, avx)
+            await status.edit_text(report, parse_mode="HTML", disable_web_page_preview=True)
+
     async def _on_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         session = load_session(user_id) or {}
+        waiting = session.get("waiting_for")
 
-        if session.get("waiting_for") != "start_update":
-            return
+        if waiting == "start_update":
+            text = update.message.text.strip()
+            matches = geocode_destination(text)
 
-        text = update.message.text.strip()
-        matches = geocode_destination(text)
+            if not matches:
+                await update.message.reply_text(
+                    f"Couldn't find <b>{html.escape(text)}</b> in BC. Try again:",
+                    parse_mode="HTML",
+                )
+                return
 
-        if not matches:
-            await update.message.reply_text(
-                f"Couldn't find <b>{html.escape(text)}</b> in BC. Try again:",
-                parse_mode="HTML",
-            )
-            return
-
-        loc = matches[0]
-        pending = session.get("pending_trip", {})
-        pending["start_name"] = loc.name
-        pending["start_lat"] = loc.lat
-        pending["start_lon"] = loc.lon
-        session["pending_trip"] = pending
-        session.pop("waiting_for", None)
-        save_session(user_id, session)
-
-        conf_text = _build_confirmation_text(pending)
-        keyboard = _build_confirmation_keyboard()
-        try:
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
-                message_id=pending["confirmation_message_id"],
-                text=conf_text,
-                reply_markup=keyboard,
-                parse_mode="HTML",
-            )
-        except Exception:
-            # Original confirmation message gone — send a fresh one
-            conf_msg = await update.message.reply_text(conf_text, reply_markup=keyboard, parse_mode="HTML")
-            pending["confirmation_message_id"] = conf_msg.message_id
+            loc = matches[0]
+            pending = session.get("pending_trip", {})
+            pending["start_name"] = loc.name
+            pending["start_lat"] = loc.lat
+            pending["start_lon"] = loc.lon
             session["pending_trip"] = pending
+            session.pop("waiting_for", None)
             save_session(user_id, session)
+
+            conf_text = _build_confirmation_text(pending)
+            keyboard = _build_confirmation_keyboard()
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=pending["confirmation_message_id"],
+                    text=conf_text,
+                    reply_markup=keyboard,
+                    parse_mode="HTML",
+                )
+            except Exception:
+                conf_msg = await update.message.reply_text(conf_text, reply_markup=keyboard, parse_mode="HTML")
+                pending["confirmation_message_id"] = conf_msg.message_id
+                session["pending_trip"] = pending
+                save_session(user_id, session)
+
+        elif waiting == "scout_destination":
+            text = update.message.text.strip()
+            session.pop("waiting_for", None)
+            save_session(user_id, session)
+            await self._run_scout_flow(update.message, text, user_id)
 
     async def _cmd_from(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id

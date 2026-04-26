@@ -1,11 +1,12 @@
 import asyncio
 import pytest
 
+from fetchers.avalanche import AvalancheReport, DangerLevel, DayDanger
 from fetchers.drivebc import RoadEvent
-from fetchers.weather import WeatherReport
+from fetchers.weather import DayForecast, WeatherReport
 from fetchers.wildfire import FireIncident
 from fetchers.wildlife_news import Advisory
-from report_assembler import assemble_report, run_all_fetchers
+from report_assembler import assemble_3day_report, assemble_avalanche_report, assemble_report, run_all_fetchers
 
 
 def test_assemble_report_basic():
@@ -257,3 +258,116 @@ def test_assemble_report_html_escaping():
     assert "&lt;" in report
     assert "&gt;" in report
     assert "<Peak>" not in report  # raw unescaped tag must not appear
+
+
+def _make_danger(val: int, label: str, icon: str) -> DangerLevel:
+    return DangerLevel(value=val, label=label, icon=icon)
+
+
+def _make_day(date: str, alp: int, tln: int, btl: int) -> DayDanger:
+    labels = {1: "Low", 2: "Moderate", 3: "Considerable", 4: "High", 5: "Extreme"}
+    icons  = {1: "✅", 2: "🟡", 3: "🟠", 4: "🔴", 5: "⛔"}
+    return DayDanger(
+        date=date,
+        alpine=_make_danger(alp, labels[alp], icons[alp]),
+        treeline=_make_danger(tln, labels[tln], icons[tln]),
+        below_treeline=_make_danger(btl, labels[btl], icons[btl]),
+    )
+
+
+def test_assemble_report_to_label():
+    """Report header shows 'To:' not a tree emoji."""
+    report = assemble_report(
+        destination_name="Elfin Lakes",
+        start_name="Squamish",
+        road_events=[], weather=None, fires=[], advisories=[],
+    )
+    assert "To: Elfin Lakes" in report
+    assert "🌲" not in report
+
+
+def test_assemble_report_avalanche_inline_alpine():
+    """Alpine report includes inline avalanche danger line."""
+    weather = WeatherReport(
+        current_temp=-2, current_wind=30, current_precip=0,
+        forecast_24h=[], freezing_level=1700, alerts=[],
+        timestamp="2026-04-26T12:00:00Z",
+        elevation=1900.0, is_alpine=True,
+    )
+    avx = AvalancheReport(
+        region_id="sea-to-sky", region_name="Sea to Sky",
+        days=[_make_day("Sun Apr 26", 3, 2, 1)],
+    )
+    report = assemble_report(
+        destination_name="Elfin Lakes",
+        start_name="Squamish",
+        road_events=[], weather=weather, fires=[], advisories=[],
+        avalanche=avx,
+    )
+    assert "Avalanche" in report
+    assert "Considerable" in report
+    assert "Moderate" in report
+
+
+def test_assemble_report_no_avalanche_non_alpine():
+    """Non-alpine report never shows avalanche line."""
+    weather = WeatherReport(
+        current_temp=15, current_wind=5, current_precip=0,
+        forecast_24h=[], freezing_level=2500, alerts=[],
+        timestamp="2026-04-26T12:00:00Z",
+        elevation=300.0, is_alpine=False,
+    )
+    avx = AvalancheReport(
+        region_id="sea-to-sky", region_name="Sea to Sky",
+        days=[_make_day("Sun Apr 26", 2, 1, 1)],
+    )
+    report = assemble_report(
+        destination_name="Alice Lake",
+        start_name="Squamish",
+        road_events=[], weather=weather, fires=[], advisories=[],
+        avalanche=avx,
+    )
+    assert "Avalanche" not in report
+
+
+def test_assemble_3day_report_basic():
+    forecasts = [
+        DayForecast(date="Sun Apr 26", temp_max=14, temp_min=5, precip_mm=2.5, snow_cm=0, condition="Partly cloudy"),
+        DayForecast(date="Mon Apr 27", temp_max=10, temp_min=3, precip_mm=8.0, snow_cm=0, condition="Rain"),
+        DayForecast(date="Tue Apr 28", temp_max=12, temp_min=4, precip_mm=0.0, snow_cm=0, condition="Clear"),
+    ]
+    report = assemble_3day_report("Alice Lake", forecasts)
+    assert "3-Day Forecast" in report
+    assert "Alice Lake" in report
+    assert "Sun Apr 26" in report
+    assert "Partly cloudy" in report
+    assert "2.5mm" in report
+
+
+def test_assemble_3day_report_empty():
+    report = assemble_3day_report("Test Peak", [])
+    assert "Data unavailable" in report
+
+
+def test_assemble_avalanche_report_basic():
+    avx = AvalancheReport(
+        region_id="sea-to-sky", region_name="Sea to Sky",
+        days=[
+            _make_day("Sun Apr 26", 3, 2, 1),
+            _make_day("Mon Apr 27", 4, 3, 2),
+            _make_day("Tue Apr 28", 3, 2, 1),
+        ],
+        highlights="High winds have loaded lee slopes.",
+    )
+    report = assemble_avalanche_report("Elfin Lakes", avx)
+    assert "Sea to Sky" in report
+    assert "Considerable" in report
+    assert "High" in report
+    assert "High winds" in report
+    assert "avalanche.ca" in report
+
+
+def test_assemble_avalanche_report_none():
+    report = assemble_avalanche_report("Test Peak", None)
+    assert "No forecast available" in report
+    assert "avalanche.ca" in report

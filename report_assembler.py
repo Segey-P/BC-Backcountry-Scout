@@ -4,13 +4,15 @@ from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from fetchers.avalanche import AvalancheReport, fetch_avalanche
 from fetchers.drivebc import RoadEvent, fetch_drivebc_events
 from fetchers.eta import ETAResult, fetch_eta
-from fetchers.weather import WeatherReport, fetch_weather
+from fetchers.weather import DayForecast, WeatherReport, fetch_weather, fetch_weather_3day
 from fetchers.wildfire import FireIncident, fetch_wildfire
 from fetchers.wildlife_news import Advisory, fetch_wildlife_news
 
 _PACIFIC = ZoneInfo("America/Vancouver")
+
 
 def _e(value) -> str:
     """Escape dynamic content for HTML — converts to str first so numbers are safe."""
@@ -25,12 +27,13 @@ def assemble_report(
     fires: list[FireIncident],
     advisories: list[Advisory],
     eta: Optional[ETAResult] = None,
+    avalanche: Optional[AvalancheReport] = None,
 ) -> str:
     """Assemble a single Telegram HTML message from fetched data."""
 
     lines = []
 
-    lines.append(f"🌲 <b>{_e(destination_name)}</b>")
+    lines.append(f"<b>To: {_e(destination_name)}</b>")
     lines.append(f"From: {_e(start_name)}")
     lines.append("")
 
@@ -64,7 +67,7 @@ def assemble_report(
         else:
             lines.append("🌤️ <b>Weather (next 24h)</b>")
         wind_str = f"{weather.current_wind:.0f} km/h" if weather.current_wind else "calm"
-        gusts_str = f", gusts {weather.wind_gusts:.0f}" if weather.wind_gusts else ""
+        gusts_str = f", gusts {weather.wind_gusts:.0f} km/h" if weather.wind_gusts else ""
         lines.append(f"Now: {_e(weather.current_temp)}°C, {_e(wind_str)}{_e(gusts_str)}")
         if weather.forecast_24h:
             precip_12h = sum(h.get("precip", 0) for h in weather.forecast_24h[:12])
@@ -81,6 +84,12 @@ def assemble_report(
                 and weather.freezing_level < weather.elevation + 200
             ):
                 lines.append("⚠️ Freezing level near or below terrain")
+            if avalanche and avalanche.days:
+                today = avalanche.days[0]
+                lines.append(
+                    f"Avalanche: {today.alpine.icon} {today.alpine.label} (alpine)"
+                    f" · {today.treeline.icon} {today.treeline.label} (treeline)"
+                )
         if weather.alerts:
             for alert in weather.alerts[:2]:
                 lines.append(f"⚠️ {_e(alert)}")
@@ -92,7 +101,7 @@ def assemble_report(
 
     lines.append("🚗 <b>Driving</b>")
     if eta:
-        lines.append(f"{eta.distance_text} · {eta.duration_traffic_text} with traffic")
+        lines.append(f"{_e(eta.distance_text)} · {_e(eta.duration_traffic_text)} with traffic")
     if road_events:
         lines.append("Monitor DriveBC for active events")
     else:
@@ -113,6 +122,57 @@ def assemble_report(
     return message
 
 
+def assemble_3day_report(destination_name: str, forecasts: list[DayForecast]) -> str:
+    if not forecasts:
+        return f"📅 <b>3-Day Forecast — {_e(destination_name)}</b>\n\nData unavailable."
+
+    lines = [f"📅 <b>3-Day Forecast — {_e(destination_name)}</b>", ""]
+    for day in forecasts:
+        snow_str = f", {day.snow_cm:.0f}cm snow" if day.snow_cm >= 0.5 else ""
+        lines.append(
+            f"<b>{_e(day.date)}</b>: {_e(day.condition)}"
+            f" ↑{day.temp_max:.0f}° ↓{day.temp_min:.0f}°"
+            f", {day.precip_mm:.1f}mm{snow_str}"
+        )
+
+    lines.append("")
+    now = datetime.now(tz=_PACIFIC).strftime("%H:%M %Z")
+    lines.append(f"<i>Source: Open-Meteo · {now}</i>")
+    return "\n".join(lines)
+
+
+def assemble_avalanche_report(destination_name: str, avx: Optional[AvalancheReport]) -> str:
+    if not avx or not avx.days:
+        return (
+            f"🏔️ <b>Avalanche Forecast — {_e(destination_name)}</b>\n\n"
+            "No forecast available. Check <a href=\"https://www.avalanche.ca\">avalanche.ca</a> directly."
+        )
+
+    lines = [
+        f"🏔️ <b>Avalanche Forecast — {_e(destination_name)}</b>",
+        f"Region: {_e(avx.region_name)}",
+        "",
+    ]
+    for day in avx.days:
+        alp = day.alpine
+        tln = day.treeline
+        btl = day.below_treeline
+        lines.append(
+            f"<b>{_e(day.date)}</b>: "
+            f"Alpine {alp.icon} {_e(alp.label)}"
+            f" · Treeline {tln.icon} {_e(tln.label)}"
+            f" · Below {btl.icon} {_e(btl.label)}"
+        )
+
+    if avx.highlights:
+        lines.append("")
+        lines.append(_e(avx.highlights[:300]))
+
+    lines.append("")
+    lines.append('<i>Source: <a href="https://www.avalanche.ca">avalanche.ca</a> · Always verify before you go.</i>')
+    return "\n".join(lines)
+
+
 async def run_all_fetchers(
     corridor_polygon, start_point: tuple, destination_point: tuple, destination_name: str
 ) -> dict:
@@ -124,6 +184,7 @@ async def run_all_fetchers(
         "fires": [],
         "advisories": [],
         "eta": None,
+        "avalanche": None,
     }
 
     async def _run(coro):
@@ -132,12 +193,13 @@ async def run_all_fetchers(
         except (asyncio.TimeoutError, Exception):
             return None
 
-    road_events, weather, fires, advisories, eta = await asyncio.gather(
+    road_events, weather, fires, advisories, eta, avalanche = await asyncio.gather(
         _run(asyncio.to_thread(fetch_drivebc_events, corridor_polygon)),
         _run(asyncio.to_thread(fetch_weather, destination_point[0], destination_point[1])),
         _run(asyncio.to_thread(fetch_wildfire, corridor_polygon, destination_point)),
         _run(asyncio.to_thread(fetch_wildlife_news, corridor_polygon, destination_name)),
         _run(asyncio.to_thread(fetch_eta, start_point, destination_point)),
+        _run(asyncio.to_thread(fetch_avalanche, destination_point[0], destination_point[1])),
     )
 
     results["road_events"] = road_events or []
@@ -145,5 +207,6 @@ async def run_all_fetchers(
     results["fires"] = fires or []
     results["advisories"] = advisories or []
     results["eta"] = eta
+    results["avalanche"] = avalanche
 
     return results

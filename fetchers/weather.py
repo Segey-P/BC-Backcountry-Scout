@@ -7,6 +7,17 @@ _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 _TIMEOUT = 3.0
 _ALPINE_ELEVATION_M = 1200
 
+_WMO_CODES = {
+    0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Overcast",
+    45: "Fog", 48: "Freezing fog",
+    51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle",
+    61: "Light rain", 63: "Rain", 65: "Heavy rain",
+    71: "Light snow", 73: "Snow", 75: "Heavy snow", 77: "Snow grains",
+    80: "Light showers", 81: "Showers", 82: "Heavy showers",
+    85: "Snow showers", 86: "Heavy snow showers",
+    95: "Thunderstorm", 96: "Thunderstorm", 99: "Thunderstorm + hail",
+}
+
 
 @dataclass
 class WeatherReport:
@@ -82,6 +93,58 @@ def fetch_weather(lat: float, lon: float) -> WeatherReport:
         wind_gusts=gusts[0] if gusts else None,
         is_alpine=(elevation or 0) > _ALPINE_ELEVATION_M,
     )
+
+
+@dataclass
+class DayForecast:
+    date: str
+    temp_max: float
+    temp_min: float
+    precip_mm: float
+    snow_cm: float
+    condition: str
+
+
+def fetch_weather_3day(lat: float, lon: float) -> list[DayForecast]:
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum,weathercode",
+        "forecast_days": 3,
+        "timezone": "auto",
+    }
+    try:
+        response = httpx.get(_OPEN_METEO_URL, params=params, timeout=_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+    except (httpx.TimeoutException, httpx.HTTPError):
+        return []
+
+    daily = data.get("daily") or {}
+    dates = daily.get("time") or []
+    highs = daily.get("temperature_2m_max") or []
+    lows = daily.get("temperature_2m_min") or []
+    precips = daily.get("precipitation_sum") or []
+    snows = daily.get("snowfall_sum") or []
+    codes = daily.get("weathercode") or []
+
+    result = []
+    for dt, hi, lo, pr, sn, code in zip(dates, highs, lows, precips, snows, codes):
+        try:
+            d = datetime.strptime(dt, "%Y-%m-%d")
+            date_str = d.strftime("%a %b %-d")
+        except ValueError:
+            date_str = dt
+        condition = _WMO_CODES.get(int(code) if code is not None else 0, "Variable")
+        result.append(DayForecast(
+            date=date_str,
+            temp_max=hi or 0,
+            temp_min=lo or 0,
+            precip_mm=pr or 0,
+            snow_cm=sn or 0,
+            condition=condition,
+        ))
+    return result
 
 
 def _fetch_ec_alerts(lat: float, lon: float) -> list[str]:
