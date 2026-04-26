@@ -9,7 +9,7 @@ All decisions finalized. Specs locked. Ready for implementation.
 ## Build Checklist (Next Actions)
 
 - [x] **Module 1: Telegram skeleton** — `bot.py` + `requirements.txt`. BotHandler class, /start with disclaimer, all other commands stubbed, async long-poll.
-- [ ] Module 2: Session manager
+- [x] Module 2: Session manager — `session.py` + `tests/test_session.py`. All 11 tests pass.
 - [ ] Module 3: Geocoder
 - [ ] Module 4: Route + buffer
 - [ ] Module 5: DriveBC fetcher
