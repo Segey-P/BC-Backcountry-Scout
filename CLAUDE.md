@@ -4,12 +4,13 @@
 
 ## Project Overview
 
-- **Name:** [Project Name]
+- **Name:** BC Backcountry Scout
 - **Status:** Discovery
-- **Repo:** github.com/Segey-P/[repo-slug]
-- **Purpose:** [One or two sentence description.]
-- **Stack:** [e.g. Streamlit + PostgreSQL]
-- **Deploy:** Streamlit Community Cloud
+- **Repo:** github.com/Segey-P/BC-Backcountry-Scout
+- **Purpose:** Telegram bot that pulls road conditions, weather, wildfires, and wildlife advisories for a BC backcountry destination in one message.
+- **Stack:** Python + python-telegram-bot
+- **Deploy:** Self-hosted (Linux server, systemd service)
+- **Telegram bot:** @bc_scout_bot
 
 ## User Profile
 
