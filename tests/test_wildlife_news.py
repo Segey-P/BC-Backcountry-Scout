@@ -114,32 +114,19 @@ def test_dedup_keeps_different_advisories():
 
 # --- source reliability tiers ---
 
-def test_parks_canada_stub_is_official():
+def test_no_stubs_when_no_rss_results():
+    """No static stubs injected — empty RSS → empty results."""
     corridor = MagicMock()
     with patch("fetchers.wildlife_news._fetch_rss", return_value=[]):
         results = fetch_wildlife_news(corridor, "Alice Lake")
-    official = [r for r in results if r.source == "Parks Canada"]
-    assert official
-    assert official[0].reliability_tier == "official"
-
-
-def test_hunting_bc_stub_is_official():
-    corridor = MagicMock()
-    with patch("fetchers.wildlife_news._fetch_rss", return_value=[]):
-        results = fetch_wildlife_news(corridor, "Alice Lake")
-    hunting = [r for r in results if r.source == "Hunting BC"]
-    assert hunting
-    assert hunting[0].reliability_tier == "official"
+    assert results == []
 
 
 # --- empty result ---
 
-def test_no_relevant_news_returns_stubs_only():
+def test_no_relevant_news_returns_empty():
     xml = _rss([{"title": "New coffee shop opens", "description": "", "link": ""}])
     corridor = MagicMock()
     with patch("fetchers.wildlife_news.httpx.get", return_value=_mock_rss_response(xml)):
         results = fetch_wildlife_news(corridor, "Alice Lake")
-    # Should have at least the Parks Canada and Hunting BC stubs
-    sources = {r.source for r in results}
-    assert "Parks Canada" in sources
-    assert "Hunting BC" in sources
+    assert results == []

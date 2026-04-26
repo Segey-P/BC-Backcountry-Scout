@@ -169,6 +169,7 @@ class BotHandler:
                 weather=data["weather"],
                 fires=data["fires"],
                 advisories=data["advisories"],
+                eta=data.get("eta"),
             )
             await query.edit_message_text(report, parse_mode="HTML")
 

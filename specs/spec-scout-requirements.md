@@ -1,10 +1,10 @@
 # BC Backcountry Scout — Requirements & Functionality
 
-**Version:** 0.1 (Draft for Build Phase 1)  
-**Date:** April 2026  
-**Status:** Refinement phase
+**Version:** 0.2 (Phase 1 deployed; Phase 1.5 polish shipped)
+**Date:** April 2026
+**Status:** Deployed to Oracle Cloud; iterating on real-world use
 
-> This document covers what BCBackcountyScout does, who it's for, scope, architecture, data sources, and functional requirements. For build sequencing, see `plan-phase1-implementation.md`.
+> This document covers what BC Backcountry Scout does, who it's for, scope, architecture, data sources, and functional requirements. Updated to reflect Phase 1.5 changes: confirmation flow, alpine weather, HTML reports, unknown-command handler.
 
 ---
 
@@ -142,18 +142,20 @@ LLM use is reserved for:
 
 ### 4.2 Geocoding
 
-- **Hybrid approach:** BC Geographic Names Web Service first, Nominatim fallback
-- **Reason:** OSM coverage of FSRs and named backcountry features in BC is patchy; the BC government dataset is the authoritative source
-- **BC GNWS:** `https://apps.gov.bc.ca/pub/geonames/` (free, no key)
-- **Nominatim:** `https://nominatim.openstreetmap.org/search` (free, must set `User-Agent`, max 1 req/sec)
+- **Hybrid approach:** BC GNWS stub → Nominatim live → fuzzy fallback against 35 hardcoded BC features
+- **Status:**
+  - **BC GNWS:** stubbed (returns hardcoded results for "alice lake" and "mamquam"). Phase 2 to wire up live.
+  - **Nominatim:** **live** (`https://nominatim.openstreetmap.org/search`). User-Agent: `BCBackcountryScout/1.0`. Results filtered to BC bounding box (lat 48.3–60.0, lon -139.1 to -114.0). Max 1 req/sec.
+  - **Fuzzy fallback:** 35 hardcoded BC features (cities, parks, peaks, FSRs) ranked by bidirectional token-match score
+- **Reason for hybrid:** OSM coverage of named backcountry features in BC is patchy; live Nominatim covers cities and major parks well, fuzzy list covers Squamish-corridor specifics
 
 ### 4.3 Weather
 
 - **Primary:** Open-Meteo (`https://api.open-meteo.com/v1/forecast`)
   - Free, no API key, generous rate limit
-  - Provides temp, wind, precip, freezing level
-- **Alerts:** Environment Canada CAP feed for active warnings in the area
-  - `https://dd.weather.gc.ca/alerts/cap/`
+  - Provides temp, wind, precip, freezing level, **snow depth**, **snowfall**, **wind gusts**, **terrain elevation**
+- **Alpine detection:** When Open-Meteo reports terrain elevation > 1200 m, the report switches to an alpine block (snow depth, recent snowfall, gusts, freezing-level-vs-terrain warning)
+- **Alerts:** Environment Canada BC-wide warnings RSS feed (`https://weather.gc.ca/rss/warning/bc_e.xml`); full CAP XML parsing is Phase 2
 
 ### 4.4 Wildfire
 
@@ -192,35 +194,41 @@ Every line in the assembled report carries an implicit reliability tier. The bot
 | Command | Behaviour |
 |---|---|
 | `/start` | Welcome message + brief explanation + safety disclaimer |
-| `/scout <destination>` | Run a full report. Shorthand: just send the destination name as a message. |
+| `/scout <destination>` | Show trip confirmation, then fetch full report on confirm |
 | `/from <location>` | Manually set or override the starting point |
-| `/whereami` | Show current session state (start point, expiry) |
-| `/clear` | Clear the session (forget starting point) |
+| `/whereami` | Show current session state (start point, last destination) |
+| `/clear` | Clear the session |
 | `/help` | List commands |
+| Unknown command (e.g. `/scount`) | Suggest closest match using fuzzy match against known commands |
 
-Sharing a Telegram **Live Location** at any time updates the live GPS slot in the session.
+Sharing a Telegram **Live Location** at any time updates the live GPS slot in the session (Phase 2 — not yet implemented).
 
 ### 5.2 The destination-first interaction flow
 
-1. User sends a destination (via `/scout` or plain text)
-2. Bot calls Geocoder → gets top 3 matches (BC-filtered, distance-biased)
-3. Bot replies with inline keyboard: 3 location buttons + "Refine search" button
-4. User taps a button → destination locked
-5. Bot resolves starting point per priority (§5.4)
-   - If no starting point available, bot asks: "Where are you starting from?"
-6. Bot fetches all data sources in parallel
-7. Bot assembles and sends report
+1. User sends `/scout <destination>`
+2. Bot replies "Searching…" (immediate feedback)
+3. Bot calls Geocoder → top match (BC-filtered, distance-biased) replaces "Searching…"
+4. Bot edits the message into a **trip confirmation card** with two inline buttons:
+   - **✅ Scout it** — confirm and fetch
+   - **📍 Change start** — switch the starting point in-line
+5. Confirmation shows: Start, Destination (full resolved name), Date (today by default)
+6. If user taps **Change start**: bot prompts for text input → re-geocodes → edits the same message back into a refreshed confirmation card
+7. If user taps **Scout it**: bot edits message to "Fetching conditions…", runs all fetchers in parallel, then edits the same message with the final report
 8. Bot updates the session timestamp (rolling 24h)
+
+The entire flow operates on a single Telegram message that progressively edits in place — no clutter, no extra messages.
 
 ### 5.3 Geocoding logic
 
-1. Append `, British Columbia` to query
-2. Try BC Geographic Names Web Service first
-3. If <3 results, top up with Nominatim results
-4. Sort all results by distance to bias point (§5.4)
-5. If best match has high string similarity to input → return top 3
-6. If no good match → trigger fuzzy matching: suggest closest names from a small built-in list of common BC features (Squamish-area trails, parks, lakes, peaks) plus best Nominatim fuzzy matches; present as "Did you mean: [button] [button] [button]"
-7. If still nothing → reply "Couldn't find that in BC. Try adding a region (e.g. 'Garibaldi') or check spelling."
+1. Append `British Columbia Canada` to query
+2. Try BC Geographic Names Web Service (currently a stub — Phase 2 to wire up live)
+3. If <3 results, query **live Nominatim** (`https://nominatim.openstreetmap.org/search`) with `User-Agent: BCBackcountryScout/1.0`
+4. Filter Nominatim results to BC bounding box (lat 48.3–60.0, lon -139.1 to -114.0)
+5. Deduplicate within 0.5 km, sort by distance to bias point (§5.4)
+6. If best match has character-level similarity ≥ 0.85 to the query → return top 3
+7. **Fuzzy fallback** (if API results are weak): rank a hardcoded list of 35 BC features (cities, parks, peaks, FSRs) by **bidirectional token-match score** (max of query→name and name→query word coverage at ≥0.80 SequenceMatcher ratio). Threshold: ≥0.50.
+   - Bidirectional scoring fixes queries like `iceberg lake whistler` matching `Whistler, BC` (1 of 2 name words match → score 0.50)
+8. If still nothing → reply "Couldn't find that in BC. Try adding a region (e.g. 'Alice Lake Squamish') or check spelling."
 
 ### 5.4 Starting-point resolution priority
 
@@ -278,31 +286,43 @@ In order:
 
 ### 5.8 Report format
 
-Assembled message uses Telegram MarkdownV2 (or HTML mode). Target length: under 1500 chars so it fits one Telegram message and renders fast on weak signal.
+Assembled message uses Telegram **HTML** mode (switched from MarkdownV2 in Phase 1.5 because real API data — road event headlines, negative temperatures, fire names — contained unescaped special characters and Telegram silently rejected the messages). All dynamic content is `html.escape()`'d. Target length: under 1500 chars so it fits one Telegram message and renders fast on weak signal.
 
 ```
-🌲 *Alice Lake Provincial Park*
+🌲 <b>Alice Lake Provincial Park</b>
 From: Squamish, BC
 
-🚨 *Safety*
+🚨 <b>Safety</b>
 ✅ No major road events on Hwy 99
-⚠️ Bear sighting reported 2 days ago — Mamquam Spawning Channel (1.5km from route)
+⚠️ Bear sighting reported 2 days ago — Mamquam Spawning Channel
 ✅ No active wildfires within 25km
+✅ No wildlife advisories
 
-🌤️ *Weather (next 24h)*
-Now: 12°C, light wind W 8 km/h
-Tomorrow AM: 8°C, 60% precip, freezing level 1800m
+🌤️ <b>Weather (next 24h)</b>
+Now: 12°C, 8 km/h
+Next 12h: 0.0mm precip, freezing level 1800m
 
-🚗 *Driving conditions*
-Hwy 99: open, normal flow
+🚗 <b>Driving conditions</b>
+Highways open, normal flow
 
-_Report generated: 14:32 PDT. Conditions change fast — verify before you go._
+<i>Report generated: 14:32 PDT. Conditions change fast — verify before you go.</i>
 ```
 
-If something is missing/unavailable:
+**Alpine variant** — when destination terrain elevation > 1200 m (auto-detected from Open-Meteo), the weather block is replaced with:
 
 ```
-🌤️ *Weather*
+🏔️ <b>Alpine Weather (1900m)</b>
+Now: -3°C, 40 km/h, gusts 75
+Next 12h: 0.5mm precip, freezing level 1700m
+Snow depth: 60cm
+Recent snowfall: 5.0cm
+⚠️ Freezing level near or below terrain
+```
+
+If a fetcher times out:
+
+```
+🌤️ <b>Weather</b>
 Data unavailable (timeout)
 ```
 
@@ -310,11 +330,12 @@ Data unavailable (timeout)
 
 | Situation | Behaviour |
 |---|---|
-| Geocoder returns nothing | Suggest spelling correction; offer to search globally with a confirmation step |
-| User taps "Refine search" | Reply "Add more detail (e.g. 'Mamquam FSR' instead of 'Mamquam')" |
-| All data sources timeout | Send a minimal report with destination + a notice; do not pretend to have data |
-| User asks about destination outside BC | Bot says: "I only cover British Columbia" |
-| Telegram API outage | Best-effort retry; logged for owner |
+| Geocoder returns nothing | Reply "Couldn't find that in BC. Try adding a region (e.g. 'Alice Lake Squamish') or check spelling." |
+| User types unknown command (e.g. `/scount`) | Suggest closest match using `difflib.get_close_matches` against known commands: "Did you mean **/scout**? Try: `/scout <destination>`" |
+| Pending confirmation expires (session purged before Scout it tapped) | Reply "Session expired. Please run /scout again." |
+| Individual fetcher times out | That section shows "Data unavailable" or is omitted; report still delivered |
+| Out-of-BC destination | Nominatim BC-bounding-box filter returns no matches → standard "couldn't find" reply |
+| Telegram API outage | Best-effort retry handled by `python-telegram-bot`; logged via `journalctl` |
 
 ---
 
