@@ -1,38 +1,41 @@
-# Phase 1 Build Queue
-
-## Refinement Complete ✓
-
-All decisions finalized. Specs locked. Ready for implementation.
-
----
-
-## Build Checklist (Next Actions)
-
-- [x] **Module 1: Telegram skeleton** — `bot.py` + `requirements.txt`. BotHandler class, /start with disclaimer, all other commands stubbed, async long-poll.
-- [x] Module 2: Session manager — `session.py` + `tests/test_session.py`. All 11 tests pass.
-- [x] Module 3: Geocoder — `geocoder.py` + `tests/test_geocoder.py`. 15 tests pass.
-- [x] Module 4: Route + buffer — `route_buffer.py` + `tests/test_route_buffer.py`. 9 tests pass.
-- [x] Module 5: DriveBC fetcher — `fetchers/drivebc.py` + `tests/test_drivebc.py`. 13 tests pass.
-- [x] Module 6: Weather fetcher — `fetchers/weather.py` + `tests/test_weather.py`. 7 tests pass.
-- [x] Module 7: Wildfire fetcher — `fetchers/wildfire.py` + `tests/test_wildfire.py`. 9 tests pass.
-- [x] Module 8: Wildlife/news fetcher — `fetchers/wildlife_news.py` + `tests/test_wildlife_news.py`. 17 tests pass.
-- [x] Module 9: Report assembler — `report_assembler.py` + `tests/test_report_assembler.py`. 6 tests pass.
-- [x] Module 10: Oracle Cloud hosting setup — `deploy/bcscout.service` + `deploy/setup.sh` + `.env.example`
-
----
+# BC Backcountry Scout — Build Status
 
 ## Phase 1 Complete ✓
 
-All 10 modules shipped. Bot is ready to deploy.
+All 10 modules shipped and tested.
 
-**Next: Deploy to Oracle Cloud**
+---
+
+## Phase 1.5 — Debug & Feature Polish ✓
+
+- [x] Real Nominatim geocoding (replaced stub — all BC locations now resolve)
+- [x] Bidirectional fuzzy token scoring (fixes "iceberg lake whistler" → Whistler)
+- [x] Expanded `_KNOWN_FEATURES` list (35 BC locations vs 20)
+- [x] Alpine weather section (auto-detected when destination > 1200m: snow depth, snowfall, gusts, freezing level warning)
+- [x] Unknown-command handler with typo suggestions (/scount → did you mean /scout?)
+- [x] 93 tests pass
+
+---
+
+## Deploy to Oracle Cloud (Next)
 
 - [ ] Provision Oracle Cloud Always-Free ARM VM (Ubuntu 22.04 LTS)
 - [ ] SSH in and run: `bash deploy/setup.sh`
 - [ ] Edit `.env` with real `TELEGRAM_BOT_TOKEN`
 - [ ] Start service: `sudo systemctl start bcscout`
-- [ ] Smoke-test: send `/start` from Telegram
-- [ ] Phase 2 planning — proactive alerts for trip destination area
+- [ ] Smoke-test: send `/start` from Telegram, then `/scout Whistler`
+
+---
+
+## Phase 2 Backlog
+
+- [ ] Telegram inline keyboard buttons for common commands (no typing required)
+- [ ] Proactive alerts when conditions change for an active session's destination
+- [ ] Open-access mode (remove JSON allowlist)
+- [ ] Live GPS location support via Telegram location message
+- [ ] Environment Canada CAP alert full XML parsing (replace RSS stub)
+- [ ] Avalanche forecast (Avalanche Canada public API)
+- [ ] BC Geographic Names Web Service (GNWS) real integration (replace stub)
 
 ---
 
@@ -40,21 +43,11 @@ All 10 modules shipped. Bot is ready to deploy.
 
 | Decision | Choice | Notes |
 |---|---|---|
-| Phase 2 priority | Proactive alerts (A) | For trip destination area; Phase 2 feature |
-| Proactive alerts scope | Destination-aware | Only if session is active |
-| Allowlist storage | JSON file (B) | Switchable to open access in Phase 2 |
-| Session purging | Weekly | Privacy-first approach |
-| Geocoding bias | Live GPS → last point (C/B fallback) | Prefer real-time location |
-| News sources | WildSafeBC, Squamish Chief, Parks Canada, Hunting BC, Fire Dept | Expanded from original spec |
-| Report format | As-is | Concise, emoji-friendly, <1500 chars |
+| Phase 2 priority | Inline buttons + proactive alerts | Buttons: no-typing UX; alerts: destination-aware |
+| Geocoding | Nominatim live + fuzzy fallback | GNWS stub retained for later |
+| Alpine threshold | 1200m | Open-Meteo terrain elevation, auto-detected |
+| Allowlist storage | JSON file | Switchable to open access in Phase 2 |
+| Session purging | Weekly | Privacy-first |
+| Geocoding bias | Live GPS → last point → Squamish default | |
+| Report format | Concise, emoji-friendly, <1500 chars | Alpine section auto-added for high destinations |
 | Language | English only | Phase 2 if demand |
-| Timeline | Soft | No hard deadline |
-
----
-
-## Phase 2 Backlog (post-deploy)
-
-- Proactive alerts when conditions change for an active session's destination
-- Open-access mode (remove JSON allowlist)
-- Live GPS location support via Telegram location message
-- Environment Canada CAP alert full XML parsing (replace RSS stub)

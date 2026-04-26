@@ -49,13 +49,28 @@ def assemble_report(
     lines.append("")
 
     if weather and weather.current_temp is not None:
-        lines.append("🌤️ *Weather \\(next 24h\\)*")
-        wind_str = f"{weather.current_wind} km/h" if weather.current_wind else "calm"
-        lines.append(f"Now: {weather.current_temp}°C, {wind_str}")
+        if weather.is_alpine and weather.elevation:
+            lines.append(f"🏔️ *Alpine Weather \\({weather.elevation:.0f}m\\)*")
+        else:
+            lines.append("🌤️ *Weather \\(next 24h\\)*")
+        wind_str = f"{weather.current_wind:.0f} km/h" if weather.current_wind else "calm"
+        gusts_str = f", gusts {weather.wind_gusts:.0f}" if weather.wind_gusts else ""
+        lines.append(f"Now: {weather.current_temp}°C, {wind_str}{gusts_str}")
         if weather.forecast_24h:
             precip_12h = sum(h.get("precip", 0) for h in weather.forecast_24h[:12])
             freezing = weather.freezing_level if weather.freezing_level else "N/A"
             lines.append(f"Next 12h: {precip_12h:.1f}mm precip, freezing level {freezing}m")
+        if weather.is_alpine:
+            if weather.snow_depth is not None:
+                lines.append(f"Snow depth: {weather.snow_depth:.0f}cm")
+            if weather.snowfall_24h and weather.snowfall_24h > 0:
+                lines.append(f"Recent snowfall: {weather.snowfall_24h:.1f}cm")
+            if (
+                weather.elevation
+                and weather.freezing_level
+                and weather.freezing_level < weather.elevation + 200
+            ):
+                lines.append("⚠️ Freezing level near or below terrain")
         if weather.alerts:
             for alert in weather.alerts[:2]:
                 lines.append(f"⚠️ {alert}")
