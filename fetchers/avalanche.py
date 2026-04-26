@@ -1,10 +1,13 @@
+import logging
 import math
 from dataclasses import dataclass, field
 
 import httpx
 
-_TIMEOUT = 5.0
+_TIMEOUT = 8.0
 _BASE_URL = "https://api.avalanche.ca/forecasts/en/forecasts"
+
+logger = logging.getLogger(__name__)
 
 _DANGER_ICON = {
     1: "✅", 2: "🟡", 3: "🟠", 4: "🔴", 5: "⛔",
@@ -91,16 +94,23 @@ def _parse_danger(raw) -> DangerLevel:
 
 def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
     region_id, region_name = _nearest_region(lat, lon)
+    url = f"{_BASE_URL}/{region_id}"
+    logger.info("Avalanche fetch: %s", url)
     try:
         resp = httpx.get(
-            f"{_BASE_URL}/{region_id}",
+            url,
             timeout=_TIMEOUT,
-            headers={"User-Agent": "BCBackcountryScout/1.0"},
+            headers={
+                "User-Agent": "BCBackcountryScout/1.0",
+                "Accept": "application/json",
+            },
         )
+        logger.info("Avalanche response: %d — first 400 chars: %s", resp.status_code, resp.text[:400])
         if resp.status_code != 200:
             return None
         data = resp.json()
-    except (httpx.TimeoutException, httpx.HTTPError, ValueError):
+    except (httpx.TimeoutException, httpx.HTTPError, ValueError) as exc:
+        logger.error("Avalanche fetch error: %s", exc)
         return None
 
     raw_ratings = data.get("dangerRatings") or []
