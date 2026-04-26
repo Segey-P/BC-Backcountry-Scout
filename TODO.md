@@ -37,6 +37,10 @@ All 10 modules shipped and tested.
 - [ ] Avalanche forecast (Avalanche Canada public API)
 - [ ] BC Geographic Names Web Service (GNWS) real integration (replace stub)
 
+- [ ] iterate on phase 1 - fix issues, confirm MVP is working
+- [ ] Phase 2 planning — proactive alerts for trip destination area
+
+
 ---
 
 ## Key Decisions Locked
