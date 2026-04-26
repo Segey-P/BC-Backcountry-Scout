@@ -1,4 +1,5 @@
 import asyncio
+import html
 from datetime import datetime
 from typing import Optional
 
@@ -6,6 +7,10 @@ from fetchers.drivebc import RoadEvent, fetch_drivebc_events
 from fetchers.weather import WeatherReport, fetch_weather
 from fetchers.wildfire import FireIncident, fetch_wildfire
 from fetchers.wildlife_news import Advisory, fetch_wildlife_news
+
+def _e(value) -> str:
+    """Escape dynamic content for HTML — converts to str first so numbers are safe."""
+    return html.escape(str(value))
 
 
 def assemble_report(
@@ -16,33 +21,33 @@ def assemble_report(
     fires: list[FireIncident],
     advisories: list[Advisory],
 ) -> str:
-    """Assemble a single Telegram MarkdownV2 message from fetched data."""
+    """Assemble a single Telegram HTML message from fetched data."""
 
     lines = []
 
-    lines.append(f"🌲 *{destination_name}*")
-    lines.append(f"From: {start_name}")
+    lines.append(f"🌲 <b>{_e(destination_name)}</b>")
+    lines.append(f"From: {_e(start_name)}")
     lines.append("")
 
-    lines.append("🚨 *Safety*")
+    lines.append("🚨 <b>Safety</b>")
 
     if road_events:
         for event in road_events:
-            lines.append(f"⚠️ {event.headline}")
+            lines.append(f"⚠️ {_e(event.headline)}")
     else:
         lines.append("✅ No major road events")
 
     if fires:
         for fire in fires:
             lines.append(
-                f"🔥 {fire.name} ({fire.size_hectares:.0f}ha, {fire.distance_to_destination_km:.1f}km away)"
+                f"🔥 {_e(fire.name)} ({fire.size_hectares:.0f}ha, {fire.distance_to_destination_km:.1f}km away)"
             )
     else:
         lines.append("✅ No active wildfires nearby")
 
     if advisories:
         for adv in advisories:
-            lines.append(f"⚠️ {adv.summary} ({adv.source})")
+            lines.append(f"⚠️ {_e(adv.summary)} ({_e(adv.source)})")
     else:
         lines.append("✅ No wildlife advisories")
 
@@ -50,12 +55,12 @@ def assemble_report(
 
     if weather and weather.current_temp is not None:
         if weather.is_alpine and weather.elevation:
-            lines.append(f"🏔️ *Alpine Weather \\({weather.elevation:.0f}m\\)*")
+            lines.append(f"🏔️ <b>Alpine Weather ({weather.elevation:.0f}m)</b>")
         else:
-            lines.append("🌤️ *Weather \\(next 24h\\)*")
+            lines.append("🌤️ <b>Weather (next 24h)</b>")
         wind_str = f"{weather.current_wind:.0f} km/h" if weather.current_wind else "calm"
         gusts_str = f", gusts {weather.wind_gusts:.0f}" if weather.wind_gusts else ""
-        lines.append(f"Now: {weather.current_temp}°C, {wind_str}{gusts_str}")
+        lines.append(f"Now: {_e(weather.current_temp)}°C, {_e(wind_str)}{_e(gusts_str)}")
         if weather.forecast_24h:
             precip_12h = sum(h.get("precip", 0) for h in weather.forecast_24h[:12])
             freezing = weather.freezing_level if weather.freezing_level else "N/A"
@@ -73,14 +78,14 @@ def assemble_report(
                 lines.append("⚠️ Freezing level near or below terrain")
         if weather.alerts:
             for alert in weather.alerts[:2]:
-                lines.append(f"⚠️ {alert}")
+                lines.append(f"⚠️ {_e(alert)}")
     else:
-        lines.append("🌤️ *Weather*")
-        lines.append("Data unavailable \\(timeout\\)")
+        lines.append("🌤️ <b>Weather</b>")
+        lines.append("Data unavailable (timeout)")
 
     lines.append("")
 
-    lines.append("🚗 *Driving conditions*")
+    lines.append("🚗 <b>Driving conditions</b>")
     if road_events:
         lines.append("Monitor DriveBC for active events")
     else:
@@ -90,7 +95,7 @@ def assemble_report(
 
     now = datetime.now().strftime("%H:%M %Z").replace("UTC", "PDT")
     lines.append(
-        f"_Report generated: {now}\\. Conditions change fast — verify before you go\\._"
+        f"<i>Report generated: {now}. Conditions change fast — verify before you go.</i>"
     )
 
     message = "\n".join(lines)
