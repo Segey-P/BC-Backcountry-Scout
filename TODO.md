@@ -16,7 +16,7 @@ All decisions finalized. Specs locked. Ready for implementation.
 - [ ] Module 6: Weather fetcher
 - [ ] Module 7: Wildfire fetcher
 - [ ] Module 8: Wildlife/news fetcher (includes Parks Canada, Hunting BC)
-- [ ] Module 9: Report assembler
+- [x] Module 9: Report assembler — `report_assembler.py` + `tests/test_report_assembler.py`. 6 tests pass. All 41 tests pass overall.
 - [ ] Module 10: Oracle Cloud hosting setup
 
 ---
