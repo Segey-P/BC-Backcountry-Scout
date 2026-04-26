@@ -2,14 +2,9 @@
 
 ## Active
 
-- [ ] Smoke-test deployed bot end-to-end:
-  - `/scout alice watersprite lake` → confirmation card appears with two buttons
-  - Tap **Scout it** → message edits to "Fetching conditions…" then full report
-  - Tap **Change start** → type new start → confirmation refreshes in place
-  - `/scout vancouver` and `/scout whistler` resolve correctly
-  - High-elevation destination (e.g. Elfin Lakes) shows 🏔️ Alpine Weather section
-  - `/scount whistler` triggers typo suggestion
-- [ ] Iterate on Phase 1 — fix any real-world issues found in use
+- [ ] Iterate on Phase 1 — fix real-world issues found in use
+- [ ] Trailforks integration — trail conditions + ride/hike reports (bear sightings, trail damage, current conditions)
+- [ ] Natural language input via Gemini — parse free-text like "I want to go to Whistler from Vancouver" into structured bot skills
 
 ## Phase 2 Backlog
 
@@ -20,6 +15,7 @@
 - [ ] Open-access mode (remove JSON allowlist)
 - [ ] Environment Canada CAP alert full XML parsing (replace RSS stub)
 - [ ] BC Geographic Names Web Service (GNWS) real integration (replace stub)
+- [ ] Facebook outdoor groups monitoring (hard — anti-scraping; low priority vs. Trailforks)
 
 ---
 
@@ -36,3 +32,5 @@
 | Session purging | Weekly | Privacy-first |
 | Geocoding bias | Live GPS → last point → Squamish default | |
 | Language | English only | Phase 2 if demand |
+| NLP at runtime | Gemini for intent parsing only | Not in data-fetch path; deterministic pipeline unchanged |
+| Local news sources | Squamish Chief RSS live; Facebook skipped | Trailforks API preferred over Facebook |
