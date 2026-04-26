@@ -11,7 +11,7 @@ All decisions finalized. Specs locked. Ready for implementation.
 - [x] **Module 1: Telegram skeleton** — `bot.py` + `requirements.txt`. BotHandler class, /start with disclaimer, all other commands stubbed, async long-poll.
 - [x] Module 2: Session manager — `session.py` + `tests/test_session.py`. All 11 tests pass.
 - [x] Module 3: Geocoder — `geocoder.py` + `tests/test_geocoder.py`. 15 tests pass.
-- [ ] Module 4: Route + buffer
+- [x] Module 4: Route + buffer — `route_buffer.py` + `tests/test_route_buffer.py`. 9 tests pass.
 - [ ] Module 5: DriveBC fetcher
 - [ ] Module 6: Weather fetcher
 - [ ] Module 7: Wildfire fetcher
