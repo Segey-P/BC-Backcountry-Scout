@@ -5,31 +5,13 @@ from dataclasses import dataclass, field
 import httpx
 
 _TIMEOUT = 8.0
-_BASE_URL = "https://api.avalanche.ca/forecasts/en/forecasts"
+_AREAS_URL = "https://api.avalanche.ca/forecasts/en/areas"
+_FORECAST_URL = "https://api.avalanche.ca/forecasts/en/forecasts/{}"
 
 logger = logging.getLogger(__name__)
 
-_DANGER_ICON = {
-    1: "✅", 2: "🟡", 3: "🟠", 4: "🔴", 5: "⛔",
-}
-_DANGER_LABEL = {
-    1: "Low", 2: "Moderate", 3: "Considerable", 4: "High", 5: "Extreme",
-}
-
-# (region_id, display_name, center_lat, center_lon)
-_REGIONS = [
-    ("sea-to-sky",         "Sea to Sky",          50.15, -123.10),
-    ("south-coast",        "South Coast",          49.35, -121.80),
-    ("south-coast-inland", "South Coast Inland",   49.50, -120.80),
-    ("north-columbia",     "North Columbia",       51.50, -118.50),
-    ("south-columbia",     "South Columbia",       49.50, -117.80),
-    ("kootenay-boundary",  "Kootenay Boundary",    49.10, -117.30),
-    ("purcells",           "Purcells",             50.50, -116.50),
-    ("cariboo",            "Cariboo",              52.70, -121.00),
-    ("north-rockies",      "North Rockies",        56.50, -122.50),
-    ("south-rockies",      "South Rockies",        50.50, -115.50),
-    ("north-coast",        "North Coast",          54.50, -128.50),
-]
+_DANGER_ICON = {1: "✅", 2: "🟡", 3: "🟠", 4: "🔴", 5: "⛔"}
+_DANGER_LABEL = {1: "Low", 2: "Moderate", 3: "Considerable", 4: "High", 5: "Extreme"}
 
 
 @dataclass
@@ -64,16 +46,13 @@ def _haversine_km(lat1, lon1, lat2, lon2) -> float:
     return R * 2 * math.asin(math.sqrt(a))
 
 
-def _nearest_region(lat: float, lon: float) -> tuple[str, str]:
-    best = min(_REGIONS, key=lambda r: _haversine_km(lat, lon, r[2], r[3]))
-    return best[0], best[1]
+def _bbox_center(bbox: list) -> tuple[float, float]:
+    """GeoJSON bbox is [minLon, minLat, maxLon, maxLat] → (lat, lon)."""
+    return (bbox[1] + bbox[3]) / 2, (bbox[0] + bbox[2]) / 2
 
 
 def _extract_int(raw) -> int:
-    """Recursively extract integer danger value from various API response shapes."""
-    if isinstance(raw, int):
-        return raw
-    if isinstance(raw, float):
+    if isinstance(raw, (int, float)):
         return int(raw)
     if isinstance(raw, dict):
         for key in ("value", "rating", "dangerRating"):
@@ -85,42 +64,15 @@ def _extract_int(raw) -> int:
 
 def _parse_danger(raw) -> DangerLevel:
     val = max(0, min(5, _extract_int(raw)))
-    return DangerLevel(
-        value=val,
-        label=_DANGER_LABEL.get(val, "No Rating"),
-        icon=_DANGER_ICON.get(val, "⬜"),
-    )
+    return DangerLevel(value=val, label=_DANGER_LABEL.get(val, "No Rating"), icon=_DANGER_ICON.get(val, "⬜"))
 
 
-_PROBE_URLS = [
-    "https://api.avalanche.ca/forecasts/en/areas",
-    "https://api.avalanche.ca/forecasts/en/forecasts",
-    "https://api.avalanche.ca/forecasts",
-]
-
-
-def _probe_api() -> None:
-    """Log responses from candidate endpoints to discover the correct API shape."""
-    headers = {"User-Agent": "BCBackcountryScout/1.0", "Accept": "application/json"}
-    for url in _PROBE_URLS:
-        try:
-            resp = httpx.get(url, timeout=_TIMEOUT, headers=headers)
-            logger.info("PROBE %s → %d — %s", url, resp.status_code, resp.text[:500])
-        except Exception as exc:
-            logger.info("PROBE %s → error: %s", url, exc)
-
-
-def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
-    region_id, region_name = _nearest_region(lat, lon)
-    _probe_api()
-    return None
-
+def _parse_forecast(hash_id: str, region_name: str, data: dict) -> "AvalancheReport | None":
     raw_ratings = data.get("dangerRatings") or []
     days: list[DayDanger] = []
 
     for day_raw in raw_ratings[:3]:
         dr = day_raw.get("dangerRating") or day_raw
-
         date_raw = day_raw.get("date") or {}
         if isinstance(date_raw, dict):
             date_str = date_raw.get("display") or date_raw.get("value") or ""
@@ -138,13 +90,64 @@ def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
             below_treeline=_parse_danger(btl),
         ))
 
+    if not days:
+        logger.warning("No dangerRatings in forecast. Keys: %s", list(data.keys()))
+        return None
+
     highlights = data.get("highlights") or ""
     if isinstance(highlights, list):
         highlights = " ".join(str(h) for h in highlights)
 
     return AvalancheReport(
-        region_id=region_id,
+        region_id=hash_id,
         region_name=region_name,
         days=days,
         highlights=str(highlights)[:400].strip(),
     )
+
+
+def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
+    headers = {"User-Agent": "BCBackcountryScout/1.0", "Accept": "application/json"}
+
+    # Step 1: fetch all regions as GeoJSON
+    try:
+        areas_resp = httpx.get(_AREAS_URL, timeout=_TIMEOUT, headers=headers)
+        if areas_resp.status_code != 200:
+            logger.warning("Areas endpoint returned %d", areas_resp.status_code)
+            return None
+        features = areas_resp.json().get("features") or []
+    except Exception as exc:
+        logger.error("Areas fetch error: %s", exc)
+        return None
+
+    if not features:
+        logger.warning("No features in areas response")
+        return None
+
+    # Step 2: find nearest region by bbox centroid
+    def _dist(f):
+        bbox = f.get("bbox")
+        if not bbox or len(bbox) < 4:
+            return float("inf")
+        clat, clon = _bbox_center(bbox)
+        return _haversine_km(lat, lon, clat, clon)
+
+    nearest = min(features, key=_dist)
+    hash_id = nearest["id"]
+    props = nearest.get("properties") or {}
+    region_name = (
+        props.get("name") or props.get("regionName") or props.get("slug") or hash_id[:12]
+    )
+    logger.info("Nearest region: %s (id: %s...)", region_name, hash_id[:16])
+
+    # Step 3: fetch forecast using hash ID
+    url = _FORECAST_URL.format(hash_id)
+    try:
+        resp = httpx.get(url, timeout=_TIMEOUT, headers=headers)
+        logger.info("Forecast %s → %d — %s", url[:80], resp.status_code, resp.text[:300])
+        if resp.status_code != 200:
+            return None
+        return _parse_forecast(hash_id, region_name, resp.json())
+    except Exception as exc:
+        logger.error("Forecast fetch error: %s", exc)
+        return None
