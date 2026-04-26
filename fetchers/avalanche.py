@@ -1,5 +1,6 @@
 import logging
 import math
+import re
 from dataclasses import dataclass, field
 
 import httpx
@@ -55,7 +56,6 @@ def _bbox_center(bbox: list) -> tuple[float, float]:
 
 
 def _parse_danger_str(raw) -> DangerLevel:
-    """Parse danger value from string ('considerable') or dict."""
     val_str = ""
     if isinstance(raw, str):
         val_str = raw.lower()
@@ -69,16 +69,21 @@ def _parse_danger_str(raw) -> DangerLevel:
     return DangerLevel(value=val, label=_DANGER_LABEL.get(val, "No Rating"), icon=_DANGER_ICON.get(val, "⬜"))
 
 
+def _shorten_region_name(name: str) -> str:
+    """Show first 3 zones of a hyphen-separated region name."""
+    parts = [p.strip() for p in name.split("-")]
+    if len(parts) <= 3:
+        return name
+    return "-".join(parts[:3]) + "…"
+
+
 def _parse_product(product: dict, area_hash: str) -> "AvalancheReport | None":
     report = product.get("report") or {}
     raw_ratings = report.get("dangerRatings") or []
-    region_name = report.get("title") or area_hash[:12]
+    region_name = _shorten_region_name(report.get("title") or area_hash[:12])
 
-    # Strip HTML from highlights
     highlights_raw = report.get("highlights") or ""
-    import re
-    highlights = re.sub(r"<[^>]+>", " ", highlights_raw).strip()
-    highlights = re.sub(r"\s+", " ", highlights)[:300]
+    highlights = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", highlights_raw)).strip()[:300]
 
     days: list[DayDanger] = []
     for day_raw in raw_ratings[:3]:
@@ -98,7 +103,7 @@ def _parse_product(product: dict, area_hash: str) -> "AvalancheReport | None":
         ))
 
     if not days:
-        logger.warning("No dangerRatings in report. Report keys: %s", list(report.keys()))
+        logger.warning("No dangerRatings in report for %s. Keys: %s", region_name, list(report.keys()))
         return None
 
     return AvalancheReport(
@@ -116,11 +121,10 @@ def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
     try:
         areas_resp = httpx.get(_AREAS_URL, timeout=_TIMEOUT, headers=headers)
         if areas_resp.status_code != 200:
-            logger.warning("Areas endpoint returned %d", areas_resp.status_code)
             return None
         features = areas_resp.json().get("features") or []
     except Exception as exc:
-        logger.error("Areas fetch error: %s", exc)
+        logger.error("Avalanche areas fetch error: %s", exc)
         return None
 
     if not features:
@@ -135,34 +139,26 @@ def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
 
     nearest = min(features, key=_dist)
     area_hash = nearest["id"]
-    logger.info("Nearest area hash: %s (centroid: %s)", area_hash[:12], nearest.get("properties", {}).get("centroid"))
 
-    # Step 2: fetch ALL products and find the one matching our area hash
+    # Step 2: fetch all products and match by area.id
     try:
         prod_resp = httpx.get(_PRODUCTS_URL, timeout=_TIMEOUT, headers=headers)
-        logger.info("Products endpoint: %d", prod_resp.status_code)
         if prod_resp.status_code != 200:
             return None
         products = prod_resp.json()
     except Exception as exc:
-        logger.error("Products fetch error: %s", exc)
+        logger.error("Avalanche products fetch error: %s", exc)
         return None
 
-    if not isinstance(products, list) or not products:
+    if not isinstance(products, list):
         return None
 
-    # Find product where area.id matches our nearest region hash
     match = next(
         (p for p in products if (p.get("area") or {}).get("id") == area_hash),
         None,
     )
     if not match:
-        logger.warning(
-            "No product matched area hash %s. Available area IDs: %s",
-            area_hash[:12],
-            [p.get("area", {}).get("id", "?")[:12] for p in products[:5]],
-        )
+        logger.warning("No avalanche product matched area %s", area_hash[:12])
         return None
 
-    logger.info("Matched product: %s", match.get("report", {}).get("title"))
     return _parse_product(match, area_hash)
