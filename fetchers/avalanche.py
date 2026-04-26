@@ -92,26 +92,28 @@ def _parse_danger(raw) -> DangerLevel:
     )
 
 
+_PROBE_URLS = [
+    "https://api.avalanche.ca/forecasts/en/areas",
+    "https://api.avalanche.ca/forecasts/en/forecasts",
+    "https://api.avalanche.ca/forecasts",
+]
+
+
+def _probe_api() -> None:
+    """Log responses from candidate endpoints to discover the correct API shape."""
+    headers = {"User-Agent": "BCBackcountryScout/1.0", "Accept": "application/json"}
+    for url in _PROBE_URLS:
+        try:
+            resp = httpx.get(url, timeout=_TIMEOUT, headers=headers)
+            logger.info("PROBE %s → %d — %s", url, resp.status_code, resp.text[:500])
+        except Exception as exc:
+            logger.info("PROBE %s → error: %s", url, exc)
+
+
 def fetch_avalanche(lat: float, lon: float) -> "AvalancheReport | None":
     region_id, region_name = _nearest_region(lat, lon)
-    url = f"{_BASE_URL}/{region_id}"
-    logger.info("Avalanche fetch: %s", url)
-    try:
-        resp = httpx.get(
-            url,
-            timeout=_TIMEOUT,
-            headers={
-                "User-Agent": "BCBackcountryScout/1.0",
-                "Accept": "application/json",
-            },
-        )
-        logger.info("Avalanche response: %d — first 400 chars: %s", resp.status_code, resp.text[:400])
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-    except (httpx.TimeoutException, httpx.HTTPError, ValueError) as exc:
-        logger.error("Avalanche fetch error: %s", exc)
-        return None
+    _probe_api()
+    return None
 
     raw_ratings = data.get("dangerRatings") or []
     days: list[DayDanger] = []
