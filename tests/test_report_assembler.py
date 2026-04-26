@@ -243,17 +243,17 @@ def test_assemble_report_alpine_no_freezing_warning_when_high():
     assert "Freezing level near or below terrain" not in report
 
 
-def test_assemble_report_markdown_escaping():
-    """Test that MarkdownV2 special chars are escaped."""
+def test_assemble_report_html_escaping():
+    """Dynamic content with HTML special chars is escaped so Telegram accepts the message."""
     report = assemble_report(
-        destination_name="Test's Location",
-        start_name="Start",
+        destination_name="Test & <Peak>",
+        start_name="Start > Here",
         road_events=[],
         weather=None,
         fires=[],
         advisories=[],
     )
-
-    assert "\\(" in report
-    assert "\\)" in report
-    assert "\\." in report
+    assert "&amp;" in report
+    assert "&lt;" in report
+    assert "&gt;" in report
+    assert "<Peak>" not in report  # raw unescaped tag must not appear
