@@ -3,24 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-
-@dataclass
-class RoadEvent:
-    headline: str
-    description: str
-    severity: str
-    last_updated: str
-
-
-@dataclass
-class WeatherReport:
-    current_temp: float
-    current_wind_speed: float
-    current_wind_direction: str
-    current_precip: float
-    forecast_24h: str
-    freezing_level: int
-    timestamp: str
+from fetchers.drivebc import RoadEvent, fetch_drivebc_events
+from fetchers.weather import WeatherReport, fetch_weather
 
 
 @dataclass
@@ -80,10 +64,17 @@ def assemble_report(
 
     lines.append("")
 
-    if weather:
+    if weather and weather.current_temp is not None:
         lines.append("🌤️ *Weather \\(next 24h\\)*")
-        lines.append(f"Now: {weather.current_temp}°C, {weather.current_wind_direction} {weather.current_wind_speed} km/h")
-        lines.append(weather.forecast_24h)
+        wind_str = f"{weather.current_wind} km/h" if weather.current_wind else "calm"
+        lines.append(f"Now: {weather.current_temp}°C, {wind_str}")
+        if weather.forecast_24h:
+            precip_12h = sum(h.get("precip", 0) for h in weather.forecast_24h[:12])
+            freezing = weather.freezing_level if weather.freezing_level else "N/A"
+            lines.append(f"Next 12h: {precip_12h:.1f}mm precip, freezing level {freezing}m")
+        if weather.alerts:
+            for alert in weather.alerts[:2]:
+                lines.append(f"⚠️ {alert}")
     else:
         lines.append("🌤️ *Weather*")
         lines.append("Data unavailable \\(timeout\\)")
@@ -111,36 +102,14 @@ def assemble_report(
     return message
 
 
-async def mock_fetch_drivebc(corridor_polygon, start, destination) -> list[RoadEvent]:
-    """Mock DriveBC fetcher for testing."""
+async def mock_fetch_wildfire(corridor_polygon, destination) -> list:
+    """Mock wildfire fetcher for testing (Module 7)."""
     await asyncio.sleep(0.1)
     return []
 
 
-async def mock_fetch_weather(lat: float, lon: float) -> Optional[WeatherReport]:
-    """Mock weather fetcher for testing."""
-    await asyncio.sleep(0.1)
-    return WeatherReport(
-        current_temp=12,
-        current_wind_speed=8,
-        current_wind_direction="W",
-        current_precip=0,
-        forecast_24h="Tomorrow AM: 8°C, 60% precip, freezing level 1800m",
-        freezing_level=1800,
-        timestamp=datetime.now().isoformat(),
-    )
-
-
-async def mock_fetch_wildfire(corridor_polygon, destination) -> list[FireIncident]:
-    """Mock wildfire fetcher for testing."""
-    await asyncio.sleep(0.1)
-    return []
-
-
-async def mock_fetch_wildlife_news(
-    corridor_polygon, destination_name
-) -> list[Advisory]:
-    """Mock wildlife/news fetcher for testing."""
+async def mock_fetch_wildlife_news(corridor_polygon, destination_name) -> list:
+    """Mock wildlife/news fetcher for testing (Module 8)."""
     await asyncio.sleep(0.1)
     return []
 
@@ -159,7 +128,7 @@ async def run_all_fetchers(
 
     try:
         road_events = await asyncio.wait_for(
-            mock_fetch_drivebc(corridor_polygon, start_point, destination_point),
+            asyncio.to_thread(fetch_drivebc_events, corridor_polygon),
             timeout=8,
         )
         results["road_events"] = road_events
@@ -170,7 +139,7 @@ async def run_all_fetchers(
 
     try:
         weather = await asyncio.wait_for(
-            mock_fetch_weather(destination_point[0], destination_point[1]),
+            asyncio.to_thread(fetch_weather, destination_point[0], destination_point[1]),
             timeout=8,
         )
         results["weather"] = weather

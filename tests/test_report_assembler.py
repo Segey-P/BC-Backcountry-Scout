@@ -13,14 +13,18 @@ from report_assembler import (
 
 def test_assemble_report_basic():
     """Test basic report generation with minimal data."""
+    from fetchers.weather import WeatherReport
+
     road_events = []
     weather = WeatherReport(
         current_temp=12,
-        current_wind_speed=8,
-        current_wind_direction="W",
+        current_wind=8,
         current_precip=0,
-        forecast_24h="Tomorrow AM: 8°C, 60% precip, freezing level 1800m",
+        forecast_24h=[
+            {"time": "2026-04-26T12:00", "temp": 10, "wind": 5, "precip": 0.5, "freezing_level": 1800}
+        ],
         freezing_level=1800,
+        alerts=[],
         timestamp="2026-04-26T14:30:00Z",
     )
     fires = []
@@ -44,21 +48,27 @@ def test_assemble_report_basic():
 
 def test_assemble_report_with_events():
     """Test report with road events and fires."""
+    from fetchers.drivebc import RoadEvent
+    from fetchers.weather import WeatherReport
+
     road_events = [
         RoadEvent(
             headline="Hwy 99 closure at Whistler",
             description="Rockfall impact",
             severity="MAJOR",
+            geometry={},
             last_updated="2026-04-26T14:00:00Z",
         )
     ]
     weather = WeatherReport(
         current_temp=10,
-        current_wind_speed=12,
-        current_wind_direction="NW",
+        current_wind=12,
         current_precip=1.5,
-        forecast_24h="Rain overnight, clearing tomorrow",
+        forecast_24h=[
+            {"time": "2026-04-26T12:00", "temp": 8, "wind": 10, "precip": 2.0, "freezing_level": 1600}
+        ],
         freezing_level=1600,
+        alerts=[],
         timestamp="2026-04-26T14:30:00Z",
     )
     fires = [
@@ -113,6 +123,8 @@ def test_assemble_report_no_weather():
 
 def test_assemble_report_length_truncation():
     """Test that extremely long input is truncated to <1500 chars."""
+    from fetchers.weather import WeatherReport
+
     long_name = "A" * 500
     report = assemble_report(
         destination_name=long_name,
@@ -120,11 +132,11 @@ def test_assemble_report_length_truncation():
         road_events=[],
         weather=WeatherReport(
             current_temp=15,
-            current_wind_speed=5,
-            current_wind_direction="S",
+            current_wind=5,
             current_precip=0,
-            forecast_24h="B" * 500,
+            forecast_24h=[{"time": "2026-04-26T12:00", "temp": 10, "wind": 5, "precip": 0.5, "freezing_level": 2000}],
             freezing_level=2000,
+            alerts=[],
             timestamp="2026-04-26T14:30:00Z",
         ),
         fires=[],
