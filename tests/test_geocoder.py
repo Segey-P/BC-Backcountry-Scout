@@ -40,7 +40,7 @@ def test_typo_results_tagged_fuzzy():
 # --- out-of-BC ---
 
 def test_out_of_bc_returns_empty():
-    results = gc.geocode_destination("Seattle")
+    results = gc.geocode_destination("Seattle Washington")
     assert results == []
 
 

@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -6,6 +9,12 @@ import httpx
 _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 _TIMEOUT = 3.0
 _ALPINE_ELEVATION_M = 1200
+_CACHE_TTL = 900  # 15 minutes
+
+_cache_state = {
+    "weather": {"last_result": None, "last_time": 0, "last_coords": None},
+    "weather_3day": {"last_result": None, "last_time": 0, "last_coords": None},
+}
 
 _WMO_CODES = {
     0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Overcast",
@@ -35,7 +44,7 @@ class WeatherReport:
     is_alpine: bool = False
 
 
-def fetch_weather(lat: float, lon: float) -> WeatherReport:
+def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -95,6 +104,24 @@ def fetch_weather(lat: float, lon: float) -> WeatherReport:
     )
 
 
+def fetch_weather(lat: float, lon: float) -> WeatherReport:
+    now = time.monotonic()
+    coords = (lat, lon)
+    cache = _cache_state["weather"]
+    if (
+        cache["last_result"] is not None
+        and cache["last_coords"] == coords
+        and (now - cache["last_time"]) < _CACHE_TTL
+    ):
+        return cache["last_result"]
+
+    result = _fetch_weather_uncached(lat, lon)
+    cache["last_result"] = result
+    cache["last_coords"] = coords
+    cache["last_time"] = now
+    return result
+
+
 @dataclass
 class DayForecast:
     date: str
@@ -105,7 +132,7 @@ class DayForecast:
     condition: str
 
 
-def fetch_weather_3day(lat: float, lon: float) -> list[DayForecast]:
+def _fetch_weather_3day_uncached(lat: float, lon: float) -> list[DayForecast]:
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -147,6 +174,24 @@ def fetch_weather_3day(lat: float, lon: float) -> list[DayForecast]:
     return result
 
 
+def fetch_weather_3day(lat: float, lon: float) -> list[DayForecast]:
+    now = time.monotonic()
+    coords = (lat, lon)
+    cache = _cache_state["weather_3day"]
+    if (
+        cache["last_result"] is not None
+        and cache["last_coords"] == coords
+        and (now - cache["last_time"]) < _CACHE_TTL
+    ):
+        return cache["last_result"]
+
+    result = _fetch_weather_3day_uncached(lat, lon)
+    cache["last_result"] = result
+    cache["last_coords"] = coords
+    cache["last_time"] = now
+    return result
+
+
 def _fetch_ec_alerts(lat: float, lon: float) -> list[str]:
     """Fetch Environment Canada CAP alerts for the area. Returns empty list if unavailable."""
     try:
@@ -180,3 +225,12 @@ def _empty_report(reason: str) -> WeatherReport:
         alerts=[],
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
+
+
+def clear_cache() -> None:
+    _cache_state["weather"]["last_result"] = None
+    _cache_state["weather"]["last_coords"] = None
+    _cache_state["weather"]["last_time"] = 0
+    _cache_state["weather_3day"]["last_result"] = None
+    _cache_state["weather_3day"]["last_coords"] = None
+    _cache_state["weather_3day"]["last_time"] = 0

@@ -102,6 +102,8 @@ def assemble_report(
     lines.append("🚗 <b>Driving</b>")
     if eta:
         lines.append(f"{_e(eta.distance_text)} · {_e(eta.duration_traffic_text)} with traffic")
+    else:
+        lines.append("⚠️ Travel time unavailable (API error or timeout)")
     if road_events:
         lines.append("Monitor DriveBC for active events")
     else:

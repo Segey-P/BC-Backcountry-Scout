@@ -7,6 +7,7 @@ from shapely.geometry import shape
 _OPEN511_URL = "https://api.open511.gov.bc.ca/events"
 _SEVERITY_KEEP = {"MAJOR", "MODERATE"}
 _KEYWORDS = frozenset({"closed", "closure", "avalanche", "washout", "rockfall", "slide"})
+_CRITICAL_ROUTES = frozenset({"sea-to-sky", "hwy 99", "highway 99"})
 _CACHE_TTL = 300  # 5 minutes
 
 _cache: dict = {}  # {"data": list, "ts": float}
@@ -23,10 +24,17 @@ class RoadEvent:
 
 def _is_relevant(event: dict) -> bool:
     severity = event.get("severity", "").upper()
+    headline = event.get("headline", "").lower()
     description = event.get("description", "").lower()
+    full_text = f"{headline} {description}".lower()
+
     if severity in _SEVERITY_KEEP:
         return True
-    return any(kw in description for kw in _KEYWORDS)
+    if any(kw in full_text for kw in _KEYWORDS):
+        return True
+    if any(route in full_text for route in _CRITICAL_ROUTES):
+        return True
+    return False
 
 
 def _intersects_corridor(event: dict, corridor) -> bool:

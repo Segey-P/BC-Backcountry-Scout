@@ -4,7 +4,14 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from fetchers.weather import WeatherReport, fetch_weather
+from fetchers.weather import WeatherReport, fetch_weather, clear_cache
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache_fixture():
+    clear_cache()
+    yield
+    clear_cache()
 
 
 def _mock_response(data: dict) -> MagicMock:

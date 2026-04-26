@@ -14,9 +14,9 @@
 ## Phase 2 Backlog
 
 - [ ] Proactive alerts when conditions change for an active session's destination
-- [ ] Live GPS location support via Telegram location message
+- [ ] Live GPS location support via Telegram location message (enables dynamic geocoding bias)
 - [ ] Inline keyboard buttons for `/scout`, `/from` (no-typing UX beyond confirmation flow)
-- [ ] Avalanche forecast (Avalanche Canada public API)
+- [ ] Alpine freezing level trends (24h forecast visualization in weather report)
 - [ ] Open-access mode (remove JSON allowlist)
 - [ ] Environment Canada CAP alert full XML parsing (replace RSS stub)
 - [ ] BC Geographic Names Web Service (GNWS) real integration (replace stub)
