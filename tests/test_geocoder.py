@@ -118,6 +118,29 @@ def test_token_match_score_unrelated():
     assert score == 0.0
 
 
+# --- stop-word regression: generic geo words cannot sole-justify a match ---
+
+def test_william_lake_does_not_match_alice_lake(monkeypatch):
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
+    results = gc.geocode_destination("william lake")
+    names = [r.name for r in results]
+    assert not any("Alice Lake" in n for n in names), (
+        "'william lake' should not fuzzy-match Alice Lake via shared 'lake' token"
+    )
+
+
+def test_williams_lake_fuzzy(monkeypatch):
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
+    results = gc.geocode_destination("williams lake")
+    assert any("Williams Lake" in r.name for r in results)
+
+
+def test_brentwood_fuzzy(monkeypatch):
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
+    results = gc.geocode_destination("brentwood")
+    assert any("Brentwood" in r.name for r in results)
+
+
 # --- no API key graceful degradation ---
 
 def test_no_api_key_falls_back_to_fuzzy(monkeypatch):
