@@ -1,4 +1,5 @@
 import math
+import os
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
@@ -9,12 +10,10 @@ _SIMILARITY_THRESHOLD = 0.85
 _FUZZY_TOKEN_THRESHOLD = 0.50
 _FUZZY_TOKEN_WORD_MIN = 0.80
 
-# Bounding box for British Columbia
 _BC_LAT_MIN, _BC_LAT_MAX = 48.3, 60.0
 _BC_LON_MIN, _BC_LON_MAX = -139.1, -114.0
 
-_NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-_NOMINATIM_HEADERS = {"User-Agent": "BCBackcountryScout/1.0 (github.com/Segey-P/bc-backcountry-scout)"}
+_GOOGLE_GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 
 
 @dataclass
@@ -22,7 +21,7 @@ class GeoResult:
     name: str
     lat: float
     lon: float
-    source: str  # "gnws" | "nominatim" | "fuzzy"
+    source: str  # "google" | "fuzzy"
 
 
 _KNOWN_FEATURES: list[GeoResult] = [
@@ -73,7 +72,6 @@ def _haversine_km(p1: tuple[float, float], p2: tuple[float, float]) -> float:
 
 
 def _similarity(query: str, name: str) -> float:
-    """Character-level similarity — used to validate API results against the query."""
     q, n = query.lower().strip(), name.lower().strip()
     if q in n or n in q:
         return 1.0
@@ -83,14 +81,13 @@ def _similarity(query: str, name: str) -> float:
 def _token_match_score(query: str, name: str) -> float:
     """Bidirectional token match: max of (query→name fraction) and (name→query fraction).
 
-    Using both directions means a query like 'iceberg lake whistler' can match
-    'Whistler, BC' because 1 of 2 name words matches a query word (score=0.50).
+    Both directions means 'iceberg lake whistler' can match 'Whistler, BC'
+    because 1 of 2 name words matches (score=0.50).
     """
     q_words = query.lower().split()
     n_words = name.lower().split()
     if not q_words or not n_words:
         return 0.0
-
     q_matched = sum(
         1 for qw in q_words
         if any(SequenceMatcher(None, qw, nw).ratio() >= _FUZZY_TOKEN_WORD_MIN for nw in n_words)
@@ -110,62 +107,58 @@ def _deduplicate(results: list[GeoResult], threshold_km: float = 0.5) -> list[Ge
     return unique
 
 
-def _gnws_lookup(query: str) -> list[GeoResult]:
-    """Stub — replace with real BC GNWS HTTP call in a later module."""
-    q = query.lower()
-    if "alice lake" in q:
-        return [GeoResult("Alice Lake Provincial Park", 49.7696, -123.1163, "gnws")]
-    if "mamquam" in q:
-        return [
-            GeoResult("Mamquam River", 49.7900, -123.0600, "gnws"),
-            GeoResult("Mamquam Forest Service Road", 49.7500, -123.0800, "gnws"),
-        ]
-    return []
+def _google_maps_lookup(query: str, bias_point: tuple[float, float]) -> list[GeoResult]:
+    api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+    if not api_key:
+        return []
 
-
-def _nominatim_lookup(query: str) -> list[GeoResult]:
-    """Live Nominatim/OSM lookup scoped to British Columbia."""
+    bias_lat, bias_lon = bias_point
     params = {
-        "q": f"{query} British Columbia Canada",
-        "format": "json",
-        "limit": 5,
-        "addressdetails": 0,
+        "address": f"{query} British Columbia Canada",
+        "key": api_key,
+        "components": "country:CA",
+        "language": "en",
+        "bounds": (
+            f"{_BC_LAT_MIN},{_BC_LON_MIN}|{_BC_LAT_MAX},{_BC_LON_MAX}"
+        ),
     }
     try:
-        response = httpx.get(
-            _NOMINATIM_URL,
-            params=params,
-            headers=_NOMINATIM_HEADERS,
-            timeout=5.0,
-        )
+        response = httpx.get(_GOOGLE_GEOCODE_URL, params=params, timeout=5.0)
         response.raise_for_status()
         data = response.json()
     except Exception:
         return []
 
+    if data.get("status") not in ("OK", "ZERO_RESULTS"):
+        return []
+
     results = []
-    for item in data:
+    for item in data.get("results", []):
+        loc = item.get("geometry", {}).get("location", {})
         try:
-            lat = float(item["lat"])
-            lon = float(item["lon"])
+            lat = float(loc["lat"])
+            lon = float(loc["lng"])
         except (KeyError, ValueError):
             continue
         if not (_BC_LAT_MIN <= lat <= _BC_LAT_MAX and _BC_LON_MIN <= lon <= _BC_LON_MAX):
             continue
-        display = item.get("display_name", "")
-        name = display.split(",")[0].strip() if display else query.title()
-        results.append(GeoResult(name, lat, lon, "nominatim"))
-    return results
+        # Use the first component of formatted_address as the display name
+        full = item.get("formatted_address", "")
+        name = full.split(",")[0].strip() if full else query.title()
+        results.append(GeoResult(name, lat, lon, "google"))
+
+    return results[:5]
+
+
+def _in_bc(r: GeoResult) -> bool:
+    return _BC_LAT_MIN <= r.lat <= _BC_LAT_MAX and _BC_LON_MIN <= r.lon <= _BC_LON_MAX
 
 
 def geocode_destination(
     query: str,
     bias_point: tuple[float, float] = SQUAMISH_DEFAULT,
 ) -> list[GeoResult]:
-    results = _gnws_lookup(query)
-    if len(results) < 3:
-        results += _nominatim_lookup(query)
-
+    results = [r for r in _google_maps_lookup(query, bias_point) if _in_bc(r)]
     results = _deduplicate(results)
     results.sort(key=lambda r: _haversine_km((r.lat, r.lon), bias_point))
 
@@ -174,4 +167,9 @@ def geocode_destination(
 
     # Fuzzy fallback: rank known BC features by bidirectional token match score
     scored = sorted(_KNOWN_FEATURES, key=lambda r: -_token_match_score(query, r.name))
-    return [r for r in scored[:3] if _token_match_score(query, r.name) >= _FUZZY_TOKEN_THRESHOLD]
+    fuzzy = [r for r in scored[:3] if _token_match_score(query, r.name) >= _FUZZY_TOKEN_THRESHOLD]
+
+    # Merge Google results (even weak ones) with fuzzy, deduplicate, re-sort
+    combined = _deduplicate(results + fuzzy)
+    combined.sort(key=lambda r: _haversine_km((r.lat, r.lon), bias_point))
+    return combined[:3]
