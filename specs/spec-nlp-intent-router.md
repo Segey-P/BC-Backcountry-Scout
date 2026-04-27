@@ -125,7 +125,7 @@ and selects/prioritises sections accordingly.
 
 | Destination type | Trip date | Sections shown | Sections skipped/deprioritised |
 |---|---|---|---|
-| `mountain` / `alpine` | today | Alpine weather, avalanche, road conditions, wildfire, wildlife | ETA |
+| `mountain` / `alpine` | today | All sections — alpine weather, avalanche, road conditions, wildfire, wildlife, ETA | — |
 | `mountain` / `alpine` | future | Tomorrow's alpine forecast, avalanche forecast for that date, normal ETA estimate | Current conditions, current traffic |
 | `lake` / `trail` / `park` | today | Weather, road conditions, wildlife, wildfire, ETA | Avalanche (unless elevation > 1200m) |
 | `lake` / `trail` / `park` | future | Forecast weather for trip date, wildfire, wildlife, normal ETA | Current conditions, current traffic |
