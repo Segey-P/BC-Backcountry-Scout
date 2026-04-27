@@ -25,6 +25,7 @@ from report_assembler import (
     run_all_fetchers,
 )
 from route_buffer import build_route_corridor
+from intent_router import Intent, nlp_enabled, parse_intent
 from session import clear_session, load_session, refresh_session, save_session
 
 logging.basicConfig(
@@ -330,6 +331,18 @@ class BotHandler:
             save_session(user_id, session)
             await self._run_scout_flow(update.message, text, user_id)
 
+        elif nlp_enabled():
+            text = update.message.text.strip()
+            try:
+                intent = await asyncio.wait_for(
+                    asyncio.to_thread(parse_intent, text),
+                    timeout=2.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("intent_router: Gemini timed out for %r", text)
+                intent = Intent(skill="unknown", reason="timeout")
+            await self._dispatch_intent(intent, update, context)
+
     async def _cmd_from(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         query = " ".join(context.args).strip() if context.args else ""
@@ -373,6 +386,58 @@ class BotHandler:
         else:
             await update.message.reply_text(
                 f"Unknown command <b>{html.escape(typed_cmd)}</b>. Use /help to see all commands.",
+                parse_mode="HTML",
+            )
+
+    async def _dispatch_intent(self, intent: Intent, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+
+        if intent.skill == "scout":
+            if not intent.destination:
+                await update.message.reply_text(
+                    "🔍 Where would you like to go?", parse_mode="HTML"
+                )
+                return
+            if intent.start:
+                matches = geocode_destination(intent.start)
+                if matches:
+                    loc = matches[0]
+                    session = load_session(user_id) or {}
+                    save_session(user_id, {
+                        **session,
+                        "starting_point": {"name": loc.name, "lat": loc.lat, "lon": loc.lon, "source": "nlp"},
+                    })
+            await self._run_scout_flow(update.message, intent.destination, user_id)
+
+        elif intent.skill == "set_start":
+            if not intent.location:
+                await update.message.reply_text("Where are you starting from?")
+                return
+            matches = geocode_destination(intent.location)
+            if not matches:
+                await update.message.reply_text("Couldn't find that location in BC.")
+                return
+            loc = matches[0]
+            session = load_session(user_id) or {}
+            save_session(user_id, {
+                **session,
+                "starting_point": {"name": loc.name, "lat": loc.lat, "lon": loc.lon, "source": "nlp"},
+            })
+            await update.message.reply_text(
+                f"📍 Starting point set to: <b>{html.escape(loc.name)}</b>", parse_mode="HTML"
+            )
+
+        elif intent.skill == "help":
+            await update.message.reply_text(_HELP, parse_mode="HTML")
+
+        elif intent.skill == "clear":
+            clear_session(user_id)
+            await update.message.reply_text("Session cleared.")
+
+        else:
+            await update.message.reply_text(
+                "I can help with BC backcountry conditions. "
+                "Try: <i>conditions at Alice Lake</i> or use /scout.",
                 parse_mode="HTML",
             )
 
