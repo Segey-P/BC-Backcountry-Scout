@@ -212,8 +212,9 @@ class BotHandler:
 
             dest_point = (pending["dest_lat"], pending["dest_lon"])
             start_point = (pending["start_lat"], pending["start_lon"])
+            trip_date = pending.get("trip_date")
             corridor = build_route_corridor(start_point, dest_point)
-            data = await run_all_fetchers(corridor, start_point, dest_point, pending["dest_name"])
+            data = await run_all_fetchers(corridor, start_point, dest_point, pending["dest_name"], trip_date=trip_date)
 
             is_alpine = data["weather"].is_alpine if data["weather"] else False
 
@@ -226,6 +227,8 @@ class BotHandler:
                 advisories=data["advisories"],
                 eta=data.get("eta"),
                 avalanche=data.get("avalanche"),
+                trip_date=trip_date,
+                tomorrow_forecast=data.get("tomorrow_forecast"),
             )
             await query.edit_message_text(
                 report,

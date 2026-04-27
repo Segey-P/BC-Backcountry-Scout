@@ -28,6 +28,8 @@ def assemble_report(
     advisories: list[Advisory],
     eta: Optional[ETAResult] = None,
     avalanche: Optional[AvalancheReport] = None,
+    trip_date: Optional[str] = None,
+    tomorrow_forecast: Optional[DayForecast] = None,
 ) -> str:
     """Assemble a single Telegram HTML message from fetched data."""
 
@@ -61,7 +63,15 @@ def assemble_report(
 
     lines.append("")
 
-    if weather and weather.current_temp is not None:
+    if trip_date == "tomorrow" and tomorrow_forecast:
+        lines.append("🌤️ <b>Weather (tomorrow)</b>")
+        snow_str = f", {tomorrow_forecast.snow_cm:.0f}cm snow" if tomorrow_forecast.snow_cm >= 0.5 else ""
+        lines.append(
+            f"{_e(tomorrow_forecast.condition)}"
+            f", ↑{tomorrow_forecast.temp_max:.0f}° ↓{tomorrow_forecast.temp_min:.0f}°"
+            f", {tomorrow_forecast.precip_mm:.1f}mm rain{snow_str}"
+        )
+    elif weather and weather.current_temp is not None:
         if weather.is_alpine and weather.elevation:
             lines.append(f"🏔️ <b>Alpine Weather ({weather.elevation:.0f}m)</b>")
         else:
@@ -85,10 +95,10 @@ def assemble_report(
             ):
                 lines.append("⚠️ Freezing level near or below terrain")
             if avalanche and avalanche.days:
-                today = avalanche.days[0]
+                day = avalanche.days[1] if trip_date == "tomorrow" and len(avalanche.days) > 1 else avalanche.days[0]
                 lines.append(
-                    f"Avalanche: {today.alpine.icon} {today.alpine.label} (alpine)"
-                    f" · {today.treeline.icon} {today.treeline.label} (treeline)"
+                    f"Avalanche: {day.alpine.icon} {day.alpine.label} (alpine)"
+                    f" · {day.treeline.icon} {day.treeline.label} (treeline)"
                 )
         if weather.alerts:
             for alert in weather.alerts[:2]:
@@ -107,7 +117,7 @@ def assemble_report(
     if road_events:
         lines.append("Monitor DriveBC for active events")
     else:
-        lines.append("Highways open, normal flow")
+        lines.append("No active events on DriveBC")
 
     lines.append("")
 
@@ -176,7 +186,8 @@ def assemble_avalanche_report(destination_name: str, avx: Optional[AvalancheRepo
 
 
 async def run_all_fetchers(
-    corridor_polygon, start_point: tuple, destination_point: tuple, destination_name: str
+    corridor_polygon, start_point: tuple, destination_point: tuple, destination_name: str,
+    trip_date: Optional[str] = None,
 ) -> dict:
     """Run all data fetchers in parallel with 8-second timeout per fetcher."""
 
@@ -187,6 +198,7 @@ async def run_all_fetchers(
         "advisories": [],
         "eta": None,
         "avalanche": None,
+        "tomorrow_forecast": None,
     }
 
     async def _run(coro):
@@ -210,5 +222,12 @@ async def run_all_fetchers(
     results["advisories"] = advisories or []
     results["eta"] = eta
     results["avalanche"] = avalanche
+
+    if trip_date == "tomorrow":
+        forecasts = await _run(
+            asyncio.to_thread(fetch_weather_3day, destination_point[0], destination_point[1])
+        )
+        if forecasts and len(forecasts) > 1:
+            results["tomorrow_forecast"] = forecasts[1]
 
     return results
