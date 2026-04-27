@@ -1,9 +1,12 @@
+import logging
 import math
 import os
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 SQUAMISH_DEFAULT = (49.7016, -123.1558)
 _SIMILARITY_THRESHOLD = 0.85
@@ -129,27 +132,30 @@ def _deduplicate(results: list[GeoResult], threshold_km: float = 0.5) -> list[Ge
 def _google_maps_lookup(query: str, bias_point: tuple[float, float]) -> list[GeoResult]:
     api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
     if not api_key:
+        logger.warning("geocoder: GOOGLE_MAPS_API_KEY not set, skipping Google lookup")
         return []
 
-    bias_lat, bias_lon = bias_point
     params = {
         "address": f"{query} British Columbia Canada",
         "key": api_key,
         "components": "country:CA",
         "language": "en",
-        "bounds": (
-            f"{_BC_LAT_MIN},{_BC_LON_MIN}|{_BC_LAT_MAX},{_BC_LON_MAX}"
-        ),
+        "bounds": f"{_BC_LAT_MIN},{_BC_LON_MIN}|{_BC_LAT_MAX},{_BC_LON_MAX}",
     }
     try:
         response = httpx.get(_GOOGLE_GEOCODE_URL, params=params, timeout=5.0)
         response.raise_for_status()
         data = response.json()
-    except Exception:
+    except Exception as e:
+        logger.warning("geocoder: Google Maps request failed: %s", e)
         return []
 
-    if data.get("status") not in ("OK", "ZERO_RESULTS"):
+    status = data.get("status")
+    if status not in ("OK", "ZERO_RESULTS"):
+        logger.warning("geocoder: Google Maps returned status=%s for query=%r", status, query)
         return []
+    logger.debug("geocoder: Google Maps status=%s results=%d for query=%r",
+                 status, len(data.get("results", [])), query)
 
     results = []
     for item in data.get("results", []):
