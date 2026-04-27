@@ -10,6 +10,14 @@ _SIMILARITY_THRESHOLD = 0.85
 _FUZZY_TOKEN_THRESHOLD = 0.50
 _FUZZY_TOKEN_WORD_MIN = 0.80
 
+# Generic geographic words that alone cannot justify a fuzzy match
+_GEO_STOP_WORDS = frozenset({
+    "lake", "lakes", "creek", "river", "mountain", "peak", "trail", "park",
+    "provincial", "forest", "service", "road", "bay", "inlet", "valley",
+    "pass", "falls", "canyon", "ridge", "glacier", "the", "of", "and",
+    "bc", "british", "columbia", "canada",
+})
+
 _BC_LAT_MIN, _BC_LAT_MAX = 48.3, 60.0
 _BC_LON_MIN, _BC_LON_MAX = -139.1, -114.0
 
@@ -60,6 +68,11 @@ _KNOWN_FEATURES: list[GeoResult] = [
     GeoResult("Skagit Valley Provincial Park", 49.0500, -121.1500, "fuzzy"),
     GeoResult("Coquihalla Summit", 49.7167, -121.0833, "fuzzy"),
     GeoResult("Hope, BC", 49.3838, -121.4422, "fuzzy"),
+    GeoResult("Williams Lake, BC", 52.1418, -122.1411, "fuzzy"),
+    GeoResult("Brentwood Bay, BC", 48.5716, -123.4634, "fuzzy"),
+    GeoResult("Merritt, BC", 50.1133, -120.7850, "fuzzy"),
+    GeoResult("Lillooet, BC", 50.6883, -121.9358, "fuzzy"),
+    GeoResult("100 Mile House, BC", 51.6444, -121.2958, "fuzzy"),
 ]
 
 
@@ -79,24 +92,30 @@ def _similarity(query: str, name: str) -> float:
 
 
 def _token_match_score(query: str, name: str) -> float:
-    """Bidirectional token match: max of (query→name fraction) and (name→query fraction).
+    """Bidirectional token match scored on meaningful (non-generic) tokens only.
 
-    Both directions means 'iceberg lake whistler' can match 'Whistler, BC'
-    because 1 of 2 name words matches (score=0.50).
+    Generic geographic words like 'lake', 'park', 'river' are excluded from
+    scoring so that e.g. 'william lake' cannot match 'Alice Lake Provincial Park'
+    purely because both contain the word 'lake'.
+    Falls back to all tokens if the query contains only stop words (e.g. 'the creek').
     """
     q_words = query.lower().split()
     n_words = name.lower().split()
     if not q_words or not n_words:
         return 0.0
+
+    q_meaningful = [w for w in q_words if w not in _GEO_STOP_WORDS] or q_words
+    n_meaningful = [w for w in n_words if w not in _GEO_STOP_WORDS] or n_words
+
     q_matched = sum(
-        1 for qw in q_words
-        if any(SequenceMatcher(None, qw, nw).ratio() >= _FUZZY_TOKEN_WORD_MIN for nw in n_words)
+        1 for qw in q_meaningful
+        if any(SequenceMatcher(None, qw, nw).ratio() >= _FUZZY_TOKEN_WORD_MIN for nw in n_meaningful)
     )
     n_matched = sum(
-        1 for nw in n_words
-        if any(SequenceMatcher(None, nw, qw).ratio() >= _FUZZY_TOKEN_WORD_MIN for qw in q_words)
+        1 for nw in n_meaningful
+        if any(SequenceMatcher(None, nw, qw).ratio() >= _FUZZY_TOKEN_WORD_MIN for qw in q_meaningful)
     )
-    return max(q_matched / len(q_words), n_matched / len(n_words))
+    return max(q_matched / len(q_meaningful), n_matched / len(n_meaningful))
 
 
 def _deduplicate(results: list[GeoResult], threshold_km: float = 0.5) -> list[GeoResult]:
