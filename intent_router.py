@@ -28,6 +28,8 @@ Rules:
 - If destination is unclear, return unknown.
 - Do not invent destinations not mentioned by the user."""
 
+_models_logged = False
+
 
 @dataclass
 class Intent:
@@ -38,6 +40,18 @@ class Intent:
     trip_date: str | None = None          # today | tomorrow | YYYY-MM-DD | None
     location: str | None = None
     reason: str | None = None
+
+
+def _log_available_models(client) -> None:
+    global _models_logged
+    if _models_logged:
+        return
+    try:
+        names = [m.name for m in client.models.list()]
+        logger.info("intent_router: available models: %s", names)
+    except Exception as e:
+        logger.warning("intent_router: could not list models: %s", e)
+    _models_logged = True
 
 
 def parse_intent(text: str) -> Intent:
@@ -51,14 +65,22 @@ def parse_intent(text: str) -> Intent:
         logger.warning("intent_router: GEMINI_API_KEY not set")
         return Intent(skill="unknown", reason="NLP not configured")
 
+    model_name = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(
-            model_name=os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
-            system_instruction=_SYSTEM_PROMPT,
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        _log_available_models(client)
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=text,
+            config=types.GenerateContentConfig(
+                system_instruction=_SYSTEM_PROMPT,
+            ),
         )
-        response = model.generate_content(text)
         raw = response.text.strip()
         # Strip markdown code fences Gemini sometimes adds despite instructions
         raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
