@@ -3,7 +3,7 @@
 ## Active
 
 - [ ] Iterate on Phase 1 — fix real-world issues found in use
-- [ ] Google Maps Geocoding API — replace Nominatim as primary; covers trailheads, FSRs, small lakes, named peaks. Keep 35-feature fuzzy list as last-resort fallback. Needs Google API key.
+- [x] Google Maps Geocoding API — replaced Nominatim; same GOOGLE_MAPS_API_KEY as ETA
 - [ ] Natural language input via Gemini — parse free-text into structured intent (skill + destination + destination_type + trip_date); see spec-nlp-intent-router.md
 - [ ] Context-aware report assembly — use destination_type (mountain/city/lake/trail) and trip_date to select report sections; future-date trips use forecast weather + normal ETA, no current traffic
 

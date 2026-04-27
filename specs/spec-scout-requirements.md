@@ -142,12 +142,12 @@ LLM use is reserved for:
 
 ### 4.2 Geocoding
 
-- **Hybrid approach:** BC GNWS stub → Nominatim live → fuzzy fallback against 35 hardcoded BC features
+- **Approach:** Google Maps Geocoding API (primary) → fuzzy fallback against 35 hardcoded BC features
 - **Status:**
-  - **BC GNWS:** stubbed (returns hardcoded results for "alice lake" and "mamquam"). Phase 2 to wire up live.
-  - **Nominatim:** **live** (`https://nominatim.openstreetmap.org/search`). User-Agent: `BCBackcountryScout/1.0`. Results filtered to BC bounding box (lat 48.3–60.0, lon -139.1 to -114.0). Max 1 req/sec.
-  - **Fuzzy fallback:** 35 hardcoded BC features (cities, parks, peaks, FSRs) ranked by bidirectional token-match score
-- **Reason for hybrid:** OSM coverage of named backcountry features in BC is patchy; live Nominatim covers cities and major parks well, fuzzy list covers Squamish-corridor specifics
+  - **Google Maps Geocoding API:** **live** (`https://maps.googleapis.com/maps/api/geocode/json`). Uses `GOOGLE_MAPS_API_KEY` (same key as ETA/Directions). Results filtered to BC bounding box (lat 48.3–60.0, lon -139.1 to -114.0). `components=country:CA`, `bounds` set to BC box for viewport bias.
+  - **Fuzzy fallback:** 35 hardcoded BC features (cities, parks, peaks, FSRs) ranked by bidirectional token-match score. Used when Google returns nothing or no API key is set.
+- **Reason for switch from Nominatim:** OSM coverage of BC backcountry trailheads, FSRs, named lakes, and peaks is patchy. Google Maps has significantly better coverage of these features.
+- **BC GNWS:** removed (was a stub; Google Maps covers the same scope with live data)
 
 ### 4.3 Weather
 

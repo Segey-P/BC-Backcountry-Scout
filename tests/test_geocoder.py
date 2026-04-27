@@ -4,61 +4,66 @@ import geocoder as gc
 from geocoder import GeoResult, SQUAMISH_DEFAULT, _haversine_km, _similarity, _token_match_score
 
 
-# --- exact match ---
+# --- fuzzy fallback (no API needed) ---
 
-def test_exact_match_alice_lake():
+def test_fuzzy_finds_alice_lake(monkeypatch):
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
     results = gc.geocode_destination("Alice Lake")
     assert len(results) > 0
     assert any("Alice Lake" in r.name for r in results)
 
 
-def test_exact_match_uses_gnws_source():
-    results = gc.geocode_destination("Alice Lake")
-    sources = {r.source for r in results}
-    assert "gnws" in sources
+def test_fuzzy_finds_elfin_lakes(monkeypatch):
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
+    results = gc.geocode_destination("Elfin Lakes")
+    assert any("Elfin Lakes" in r.name for r in results)
 
 
-def test_exact_match_mamquam():
-    results = gc.geocode_destination("Mamquam")
-    assert len(results) > 0
-    assert any("Mamquam" in r.name for r in results)
-
-
-# --- typo / fuzzy fallback ---
-
-def test_typo_triggers_fuzzy_fallback():
+def test_typo_triggers_fuzzy_fallback(monkeypatch):
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
     results = gc.geocode_destination("alce lake")
     assert len(results) > 0
     assert any("Alice Lake" in r.name for r in results)
 
 
-def test_typo_results_tagged_fuzzy():
+def test_typo_results_tagged_fuzzy(monkeypatch):
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
     results = gc.geocode_destination("alce lake")
     assert all(r.source == "fuzzy" for r in results)
 
 
-# --- out-of-BC ---
+def test_mamquam_fuzzy(monkeypatch):
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
+    results = gc.geocode_destination("Mamquam")
+    assert any("Mamquam" in r.name for r in results)
 
-def test_out_of_bc_returns_empty():
+
+# --- Google results used when returned ---
+
+def test_google_result_returned(monkeypatch):
+    google_hit = GeoResult("Watersprite Lake", 50.0412, -123.1284, "google")
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [google_hit])
+    results = gc.geocode_destination("Watersprite Lake")
+    assert any(r.source == "google" for r in results)
+
+
+def test_google_result_out_of_bc_filtered(monkeypatch):
+    # Google result outside BC bounding box should already be filtered in _google_maps_lookup,
+    # but if it slips through, fuzzy fallback should dominate
+    outside_bc = GeoResult("Seattle", 47.6062, -122.3321, "google")
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [outside_bc])
     results = gc.geocode_destination("Seattle Washington")
-    assert results == []
-
-
-def test_out_of_bc_far_location():
-    results = gc.geocode_destination("Toronto Ontario")
-    assert results == []
+    assert all(r.lat >= gc._BC_LAT_MIN for r in results)
 
 
 # --- distance sorting ---
 
 def test_distance_sorting(monkeypatch):
-    far = GeoResult("Test Spot Alpha", 51.5, -120.0, "gnws")   # ~250 km from Squamish
-    close = GeoResult("Test Spot Beta", 49.72, -123.15, "gnws")  # ~2 km from Squamish
-    mid = GeoResult("Test Spot Gamma", 50.1, -122.9, "gnws")   # ~45 km from Squamish
+    far = GeoResult("Test Spot Alpha", 51.5, -120.0, "google")    # ~250 km from Squamish
+    close = GeoResult("Test Spot Beta", 49.72, -123.15, "google")  # ~2 km from Squamish
+    mid = GeoResult("Test Spot Gamma", 50.1, -122.9, "google")    # ~45 km from Squamish
 
-    monkeypatch.setattr(gc, "_gnws_lookup", lambda q: [far, close, mid])
-    monkeypatch.setattr(gc, "_nominatim_lookup", lambda q: [])
-
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [far, close, mid])
     results = gc.geocode_destination("test spot", bias_point=SQUAMISH_DEFAULT)
 
     assert results[0].name == "Test Spot Beta"
@@ -66,16 +71,26 @@ def test_distance_sorting(monkeypatch):
 
 
 def test_distance_sorting_closer_wins(monkeypatch):
-    equidistant_a = GeoResult("Place A", 50.0, -123.5, "gnws")
-    equidistant_b = GeoResult("Place B", 50.0, -122.7, "gnws")
-    closer = GeoResult("Place C", 49.75, -123.16, "gnws")
+    equidistant_a = GeoResult("Place A", 50.0, -123.5, "google")
+    equidistant_b = GeoResult("Place B", 50.0, -122.7, "google")
+    closer = GeoResult("Place C", 49.75, -123.16, "google")
 
-    monkeypatch.setattr(gc, "_gnws_lookup", lambda q: [equidistant_a, equidistant_b, closer])
-    monkeypatch.setattr(gc, "_nominatim_lookup", lambda q: [])
-
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [equidistant_a, equidistant_b, closer])
     results = gc.geocode_destination("place", bias_point=SQUAMISH_DEFAULT)
 
     assert results[0].name == "Place C"
+
+
+# --- deduplication ---
+
+def test_deduplication_removes_same_location(monkeypatch):
+    dup1 = GeoResult("Alice Lake Provincial Park", 49.7696, -123.1163, "google")
+    dup2 = GeoResult("Alice Lake, BC", 49.7697, -123.1164, "google")  # <0.5 km away
+
+    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [dup1, dup2])
+    results = gc.geocode_destination("Alice Lake")
+    names = [r.name for r in results]
+    assert len([n for n in names if "Alice Lake" in n]) == 1
 
 
 # --- similarity helper ---
@@ -103,15 +118,10 @@ def test_token_match_score_unrelated():
     assert score == 0.0
 
 
-# --- deduplication ---
+# --- no API key graceful degradation ---
 
-def test_deduplication_removes_same_location(monkeypatch):
-    dup1 = GeoResult("Alice Lake Provincial Park", 49.7696, -123.1163, "gnws")
-    dup2 = GeoResult("Alice Lake, BC", 49.7697, -123.1164, "nominatim")  # <0.5 km away
-
-    monkeypatch.setattr(gc, "_gnws_lookup", lambda q: [dup1])
-    monkeypatch.setattr(gc, "_nominatim_lookup", lambda q: [dup2])
-
-    results = gc.geocode_destination("Alice Lake")
-    names = [r.name for r in results]
-    assert len([n for n in names if "Alice Lake" in n]) == 1
+def test_no_api_key_falls_back_to_fuzzy(monkeypatch):
+    monkeypatch.delenv("GOOGLE_MAPS_API_KEY", raising=False)
+    results = gc.geocode_destination("Whistler")
+    assert len(results) > 0
+    assert all(r.source == "fuzzy" for r in results)
