@@ -55,7 +55,7 @@ def parse_intent(text: str) -> Intent:
         import google.generativeai as genai
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(
-            model_name="gemini-2.0-flash",
+            model_name=os.environ.get("GEMINI_MODEL", "gemini-2.0-flash"),
             system_instruction=_SYSTEM_PROMPT,
         )
         response = model.generate_content(text)
