@@ -333,14 +333,16 @@ class BotHandler:
 
         elif nlp_enabled():
             text = update.message.text.strip()
+            thinking = await update.message.reply_text("⏳")
             try:
                 intent = await asyncio.wait_for(
                     asyncio.to_thread(parse_intent, text),
-                    timeout=2.0,
+                    timeout=20.0,
                 )
             except asyncio.TimeoutError:
                 logger.warning("intent_router: Gemini timed out for %r", text)
                 intent = Intent(skill="unknown", reason="timeout")
+            await thinking.delete()
             await self._dispatch_intent(intent, update, context)
 
     async def _cmd_from(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

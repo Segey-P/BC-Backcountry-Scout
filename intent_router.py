@@ -28,6 +28,24 @@ Rules:
 - If destination is unclear, return unknown.
 - Do not invent destinations not mentioned by the user."""
 
+# Module-level client — initialized once on first use, reused for all calls.
+# Avoids per-request SSL handshake and connection overhead (~2-4s saved per call).
+_client = None
+_client_model = None
+
+
+def _get_client():
+    global _client, _client_model
+    api_key = os.environ.get("GEMINI_API_KEY")
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
+    if _client is None or _client_model != model:
+        from google import genai
+        _client = genai.Client(api_key=api_key)
+        _client_model = model
+        logger.info("intent_router: Gemini client ready (model=%s)", model)
+    return _client, model
+
+
 @dataclass
 class Intent:
     skill: str                        # scout | set_start | help | clear | unknown
@@ -45,18 +63,13 @@ def parse_intent(text: str) -> Intent:
     Returns Intent(skill='unknown') on any failure so the caller always gets
     a valid object without handling exceptions.
     """
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
+    if not os.environ.get("GEMINI_API_KEY"):
         logger.warning("intent_router: GEMINI_API_KEY not set")
         return Intent(skill="unknown", reason="NLP not configured")
 
-    model_name = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
-
     try:
-        from google import genai
         from google.genai import types
-
-        client = genai.Client(api_key=api_key)
+        client, model_name = _get_client()
         response = client.models.generate_content(
             model=model_name,
             contents=text,
