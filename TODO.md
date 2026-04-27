@@ -4,7 +4,6 @@
 
 - [ ] Iterate on Phase 1 — fix real-world issues found in use
 - [ ] Google Maps Geocoding API — replace Nominatim as primary; covers trailheads, FSRs, small lakes, named peaks. Keep 35-feature fuzzy list as last-resort fallback. Needs Google API key.
-- [ ] AllTrails integration — recent trail reviews (conditions, bear sightings, trail damage) — confirm API access approach first
 - [ ] Natural language input via Gemini — parse free-text into structured intent (skill + destination + destination_type + trip_date); see spec-nlp-intent-router.md
 - [ ] Context-aware report assembly — use destination_type (mountain/city/lake/trail) and trip_date to select report sections; future-date trips use forecast weather + normal ETA, no current traffic
 
@@ -37,4 +36,4 @@
 | NLP at runtime | Gemini for intent parsing only | Not in data-fetch path; deterministic pipeline unchanged |
 | Context-aware reports | destination_type + trip_date fields from NLP | Mountain→alpine/avalanche; city→driving/ETA; future date→forecast, no live traffic |
 | Wildfire corridor check | Both route corridor AND 25km around destination | Already implemented in wildfire.py |
-| Local news sources | Squamish Chief RSS live; Facebook skipped | AllTrails preferred for trail reviews |
+| Local news sources | Squamish Chief RSS live; Facebook + AllTrails out of scope | |
