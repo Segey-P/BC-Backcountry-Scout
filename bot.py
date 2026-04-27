@@ -73,12 +73,25 @@ _BOT_COMMANDS = [
 
 
 def _build_confirmation_text(pending: dict) -> str:
-    today = date.today().strftime("%b %d, %Y")
+    from datetime import timedelta
+    trip_date = pending.get("trip_date")
+    today = date.today()
+    if trip_date == "tomorrow":
+        label_date = (today + timedelta(days=1)).strftime("%b %d, %Y")
+        date_label = f"Tomorrow ({label_date})"
+    elif trip_date and trip_date not in ("today", None):
+        try:
+            d = date.fromisoformat(trip_date)
+            date_label = d.strftime("%b %d, %Y")
+        except ValueError:
+            date_label = f"Today ({today.strftime('%b %d, %Y')})"
+    else:
+        date_label = f"Today ({today.strftime('%b %d, %Y')})"
     return (
         f"🗺️ <b>Trip confirmation</b>\n\n"
         f"📍 <b>Start:</b> {html.escape(pending['start_name'])}\n"
         f"🏁 <b>Destination:</b> {html.escape(pending['dest_name'])}\n"
-        f"📅 <b>Date:</b> Today ({today})\n\n"
+        f"📅 <b>Date:</b> {date_label}\n\n"
         "Tap <b>Scout it</b> to fetch conditions, or change your starting point."
     )
 
@@ -143,7 +156,7 @@ class BotHandler:
             return
         await self._run_scout_flow(update.message, query, user_id)
 
-    async def _run_scout_flow(self, message, query_text: str, user_id: int):
+    async def _run_scout_flow(self, message, query_text: str, user_id: int, trip_date: str | None = None):
         """Geocode a destination and send the trip confirmation card."""
         status_msg = await message.reply_text("Searching…")
 
@@ -166,6 +179,7 @@ class BotHandler:
             "start_lat": start["lat"] if start else 49.7016,
             "start_lon": start["lon"] if start else -123.1558,
             "confirmation_message_id": status_msg.message_id,
+            "trip_date": trip_date,
         }
 
         await status_msg.edit_text(
@@ -409,7 +423,7 @@ class BotHandler:
                         **session,
                         "starting_point": {"name": loc.name, "lat": loc.lat, "lon": loc.lon, "source": "nlp"},
                     })
-            await self._run_scout_flow(update.message, intent.destination, user_id)
+            await self._run_scout_flow(update.message, intent.destination, user_id, trip_date=intent.trip_date)
 
         elif intent.skill == "set_start":
             if not intent.location:
