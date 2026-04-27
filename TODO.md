@@ -3,8 +3,10 @@
 ## Active
 
 - [ ] Iterate on Phase 1 — fix real-world issues found in use
+- [ ] Google Maps Geocoding API — replace Nominatim as primary; covers trailheads, FSRs, small lakes, named peaks. Keep 35-feature fuzzy list as last-resort fallback. Needs Google API key.
 - [ ] AllTrails integration — recent trail reviews (conditions, bear sightings, trail damage) — confirm API access approach first
-- [ ] Natural language input via Gemini — parse free-text like "I want to go to Whistler from Vancouver" into structured bot skills
+- [ ] Natural language input via Gemini — parse free-text into structured intent (skill + destination + destination_type + trip_date); see spec-nlp-intent-router.md
+- [ ] Context-aware report assembly — use destination_type (mountain/city/lake/trail) and trip_date to select report sections; future-date trips use forecast weather + normal ETA, no current traffic
 
 ## Phase 2 Backlog
 
@@ -23,7 +25,8 @@
 | Decision | Choice | Notes |
 |---|---|---|
 | Phase 2 priority | Proactive alerts | Destination-aware, when active session exists |
-| Geocoding | Nominatim live + 35-feature fuzzy fallback | GNWS stub retained for later |
+| Geocoding primary | Google Maps API (planned) | Replaces Nominatim; better BC backcountry coverage |
+| Geocoding fallback | 35-feature fuzzy list | Last resort; GNWS stub retained for later |
 | Alpine threshold | 1200m | Open-Meteo terrain elevation, auto-detected |
 | Report format | HTML (was MarkdownV2) | Robust escaping for real API data |
 | Trip flow | Confirmation step before fetch | Inline buttons: Scout it / Change start |
@@ -32,4 +35,6 @@
 | Geocoding bias | Live GPS → last point → Squamish default | |
 | Language | English only | Phase 2 if demand |
 | NLP at runtime | Gemini for intent parsing only | Not in data-fetch path; deterministic pipeline unchanged |
+| Context-aware reports | destination_type + trip_date fields from NLP | Mountain→alpine/avalanche; city→driving/ETA; future date→forecast, no live traffic |
+| Wildfire corridor check | Both route corridor AND 25km around destination | Already implemented in wildfire.py |
 | Local news sources | Squamish Chief RSS live; Facebook skipped | AllTrails preferred for trail reviews |
