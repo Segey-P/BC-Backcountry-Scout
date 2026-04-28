@@ -101,10 +101,13 @@ def assemble_report(
                 lines.append("⚠️ Freezing level near or below terrain")
             if avalanche and avalanche.days:
                 today = avalanche.days[0]
-                lines.append(
-                    f"Avalanche: {today.alpine.icon} {today.alpine.label} (alpine)"
-                    f" · {today.treeline.icon} {today.treeline.label} (treeline)"
-                )
+                if today.alpine.value == 0 and today.treeline.value == 0:
+                    lines.append("Avalanche: No forecast issued — check <a href=\"https://www.avalanche.ca\">avalanche.ca</a>")
+                else:
+                    lines.append(
+                        f"Avalanche: {today.alpine.icon} {today.alpine.label} (alpine)"
+                        f" · {today.treeline.icon} {today.treeline.label} (treeline)"
+                    )
         if weather.alerts:
             for alert in weather.alerts[:2]:
                 lines.append(f"⚠️ {_e(alert)}")
@@ -167,6 +170,15 @@ def assemble_avalanche_report(
         return (
             f"🏔️ <b>Avalanche Forecast — {_e(destination_name)}</b>\n\n"
             "No forecast available. Check <a href=\"https://www.avalanche.ca\">avalanche.ca</a> directly."
+        )
+
+    if all(d.alpine.value == 0 and d.treeline.value == 0 and d.below_treeline.value == 0 for d in avx.days):
+        return (
+            f"🏔️ <b>Avalanche Forecast — {_e(destination_name)}</b>\n"
+            f"Region: {_e(avx.region_name)}\n\n"
+            "No forecast currently issued for this region. "
+            "Typical at end of season (spring) or before season opens (fall).\n\n"
+            '<i>Check <a href="https://www.avalanche.ca">avalanche.ca</a> directly.</i>'
         )
 
     lines = [
