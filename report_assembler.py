@@ -1,6 +1,6 @@
 import asyncio
 import html
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -12,6 +12,18 @@ from fetchers.wildfire import FireIncident, fetch_wildfire
 from fetchers.wildlife_news import Advisory, fetch_wildlife_news
 
 _PACIFIC = ZoneInfo("America/Vancouver")
+
+
+def _is_avalanche_season() -> bool:
+    """Avalanche forecasts are only issued Oct 1 – Apr 30."""
+    m = date.today().month
+    return m <= 4 or m >= 10
+
+
+def _is_wildlife_season() -> bool:
+    """Wildlife advisories are relevant Apr 1 – Nov 30."""
+    m = date.today().month
+    return 4 <= m <= 11
 
 
 def _e(value) -> str:
@@ -67,11 +79,12 @@ def assemble_report(
     else:
         lines.append("✅ No active wildfires nearby")
 
-    if advisories:
-        for adv in advisories:
-            lines.append(f"🔔 {_e(adv.summary)} ({_e(adv.source)})")
-    else:
-        lines.append("✅ No wildlife advisories")
+    if _is_wildlife_season():
+        if advisories:
+            for adv in advisories:
+                lines.append(f"🔔 {_e(adv.summary)} ({_e(adv.source)})")
+        else:
+            lines.append("✅ No wildlife advisories")
 
     lines.append("")
 
@@ -89,17 +102,15 @@ def assemble_report(
             trend = _freezing_level_trend(weather.forecast_24h)
             lines.append(f"Next 12h: {precip_12h:.1f}mm precip, freezing level {freezing}m{trend}")
         if weather.is_alpine:
-            if weather.snow_depth is not None:
-                lines.append(f"Snow depth: {weather.snow_depth:.0f}cm")
             if weather.snowfall_24h and weather.snowfall_24h > 0:
-                lines.append(f"Recent snowfall: {weather.snowfall_24h:.1f}cm")
+                lines.append(f"New snow today: {weather.snowfall_24h:.1f}cm")
             if (
                 weather.elevation
                 and weather.freezing_level
                 and weather.freezing_level < weather.elevation + 200
             ):
                 lines.append("⚠️ Freezing level near or below terrain")
-            if avalanche and avalanche.days:
+            if _is_avalanche_season() and avalanche and avalanche.days:
                 today = avalanche.days[0]
                 if today.alpine.value == 0 and today.treeline.value == 0:
                     lines.append("Avalanche: No forecast issued — check <a href=\"https://www.avalanche.ca\">avalanche.ca</a>")
@@ -219,10 +230,8 @@ def assemble_avalanche_report(
         wind_str = f"{weather.current_wind:.0f} km/h" if weather.current_wind else "calm"
         gusts_str = f", gusts {weather.wind_gusts:.0f} km/h" if weather.wind_gusts else ""
         lines.append(f"❄️ Alpine now: {_e(weather.current_temp)}°C, {_e(wind_str)}{_e(gusts_str)}")
-        if weather.snow_depth is not None:
-            lines.append(f"Snow depth: {weather.snow_depth:.0f}cm")
         if weather.snowfall_24h and weather.snowfall_24h > 0:
-            lines.append(f"Recent snowfall: {weather.snowfall_24h:.1f}cm")
+            lines.append(f"New snow today: {weather.snowfall_24h:.1f}cm")
         if weather.freezing_level:
             lines.append(f"Freezing level: {weather.freezing_level:.0f}m")
 
@@ -325,12 +334,13 @@ async def run_all_fetchers(
         task_map["eta"] = asyncio.to_thread(fetch_eta, start_point, destination_point)
     if focus in (None, "avalanche"):
         task_map["weather"] = asyncio.to_thread(fetch_weather, destination_point[0], destination_point[1])
-        task_map["avalanche"] = asyncio.to_thread(fetch_avalanche, destination_point[0], destination_point[1])
+        if _is_avalanche_season():
+            task_map["avalanche"] = asyncio.to_thread(fetch_avalanche, destination_point[0], destination_point[1])
     if focus == "weather":
         task_map["weather_3day"] = asyncio.to_thread(fetch_weather_3day, destination_point[0], destination_point[1])
     if focus in (None, "wildfire"):
         task_map["fires"] = asyncio.to_thread(fetch_wildfire, corridor_polygon, destination_point)
-    if focus in (None, "wildlife"):
+    if focus in (None, "wildlife") and _is_wildlife_season():
         task_map["advisories"] = asyncio.to_thread(fetch_wildlife_news, corridor_polygon, destination_name)
 
     keys = list(task_map.keys())

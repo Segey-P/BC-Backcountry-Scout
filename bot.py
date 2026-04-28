@@ -5,7 +5,7 @@ import os
 from datetime import date, datetime, timezone
 from difflib import get_close_matches
 
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
@@ -84,6 +84,12 @@ _BOT_COMMANDS = [
 ]
 
 _SQUAMISH_DEFAULT = (49.7016, -123.1558)
+
+_GPS_KEYBOARD = ReplyKeyboardMarkup(
+    [[KeyboardButton("📍 Share my GPS location", request_location=True)]],
+    one_time_keyboard=True,
+    resize_keyboard=True,
+)
 
 
 def _build_confirmation_text(pending: dict) -> str:
@@ -316,9 +322,13 @@ class BotHandler:
 
         elif query.data == "scout_change_start":
             await query.edit_message_text(
-                "📍 <b>What's your starting point?</b>\n\nType and send your city or location in BC.",
+                "📍 <b>What's your starting point?</b>\n\nType a location or tap below to share your GPS position:",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([]),
+            )
+            await query.message.reply_text(
+                "Share location or type it:",
+                reply_markup=_GPS_KEYBOARD,
             )
             session["waiting_for"] = "start_update"
             save_session(user_id, session)
@@ -434,7 +444,14 @@ class BotHandler:
         user_id = update.effective_user.id
         query = " ".join(context.args).strip() if context.args else ""
         if not query:
-            await update.message.reply_text("Usage: /from &lt;location&gt;", parse_mode="HTML")
+            session = load_session(user_id) or {}
+            session["waiting_for"] = "start_update"
+            save_session(user_id, session)
+            await update.message.reply_text(
+                "📍 <b>What's your starting point?</b>\n\nType a location or tap the button to share your GPS position:",
+                parse_mode="HTML",
+                reply_markup=_GPS_KEYBOARD,
+            )
             return
 
         matches = geocode_destination(query)
@@ -513,6 +530,7 @@ class BotHandler:
             pending["start_lon"] = lon
             session["pending_trip"] = pending
             save_session(user_id, session)
+            await update.message.reply_text("📍 GPS location set.", reply_markup=ReplyKeyboardRemove())
             conf_text = _build_confirmation_text(pending)
             keyboard = _build_confirmation_keyboard()
             try:
@@ -524,11 +542,15 @@ class BotHandler:
                     parse_mode="HTML",
                 )
             except Exception:
-                await update.message.reply_text(conf_text, reply_markup=keyboard, parse_mode="HTML")
+                conf_msg = await update.message.reply_text(conf_text, reply_markup=keyboard, parse_mode="HTML")
+                pending["confirmation_message_id"] = conf_msg.message_id
+                session["pending_trip"] = pending
+                save_session(user_id, session)
         else:
             await update.message.reply_text(
-                f"📍 Starting point set to your GPS location. Use /scout to search for a destination.",
+                "📍 Starting point set to your GPS location. Use /scout to search for a destination.",
                 parse_mode="HTML",
+                reply_markup=ReplyKeyboardRemove(),
             )
 
     async def _on_quick_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
