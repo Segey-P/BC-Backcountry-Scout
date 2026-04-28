@@ -21,7 +21,10 @@ from geocoder import geocode_destination
 from report_assembler import (
     assemble_3day_report,
     assemble_avalanche_report,
+    assemble_driving_report,
     assemble_report,
+    assemble_wildfire_report,
+    assemble_wildlife_report,
     run_all_fetchers,
 )
 from route_buffer import build_route_corridor
@@ -87,6 +90,15 @@ def _build_confirmation_text(pending: dict) -> str:
             date_label = f"Today ({today.strftime('%b %d, %Y')})"
     else:
         date_label = f"Today ({today.strftime('%b %d, %Y')})"
+
+    focus = pending.get("focus")
+    if focus and focus != "driving":
+        return (
+            f"🗺️ <b>Trip confirmation</b>\n\n"
+            f"🏁 <b>Destination:</b> {html.escape(pending['dest_name'])}\n"
+            f"📅 <b>Date:</b> {date_label}\n\n"
+            "Tap <b>Scout it</b> to fetch conditions."
+        )
     return (
         f"🗺️ <b>Trip confirmation</b>\n\n"
         f"📍 <b>Start:</b> {html.escape(pending['start_name'])}\n"
@@ -96,19 +108,21 @@ def _build_confirmation_text(pending: dict) -> str:
     )
 
 
-def _build_confirmation_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ Scout it", callback_data="scout_confirm"),
-        InlineKeyboardButton("📍 Change start", callback_data="scout_change_start"),
-    ]])
+def _build_confirmation_keyboard(show_change_start: bool = True) -> InlineKeyboardMarkup:
+    buttons = [InlineKeyboardButton("✅ Scout it", callback_data="scout_confirm")]
+    if show_change_start:
+        buttons.append(InlineKeyboardButton("📍 Change start", callback_data="scout_change_start"))
+    return InlineKeyboardMarkup([buttons])
 
 
-def _build_post_report_keyboard(is_alpine: bool) -> InlineKeyboardMarkup:
+def _build_post_report_keyboard(is_alpine: bool, focus: str | None = None) -> InlineKeyboardMarkup:
+    new_btn = InlineKeyboardButton("🔄 Scout new destination", callback_data="ext_new")
+    if focus:
+        return InlineKeyboardMarkup([[new_btn]])
     row1 = [InlineKeyboardButton("📅 3-day forecast", callback_data="ext_3day")]
     if is_alpine:
         row1.append(InlineKeyboardButton("🏔️ Avalanche", callback_data="ext_avalanche"))
-    row2 = [InlineKeyboardButton("🔄 Scout new destination", callback_data="ext_new")]
-    return InlineKeyboardMarkup([row1, row2])
+    return InlineKeyboardMarkup([row1, [new_btn]])
 
 
 class BotHandler:
@@ -156,7 +170,10 @@ class BotHandler:
             return
         await self._run_scout_flow(update.message, query, user_id)
 
-    async def _run_scout_flow(self, message, query_text: str, user_id: int, trip_date: str | None = None):
+    async def _run_scout_flow(
+        self, message, query_text: str, user_id: int,
+        trip_date: str | None = None, focus: str | None = None,
+    ):
         """Geocode a destination and send the trip confirmation card."""
         status_msg = await message.reply_text("Searching…")
 
@@ -180,11 +197,13 @@ class BotHandler:
             "start_lon": start["lon"] if start else -123.1558,
             "confirmation_message_id": status_msg.message_id,
             "trip_date": trip_date,
+            "focus": focus,
         }
 
+        show_change_start = focus in (None, "driving")
         await status_msg.edit_text(
             _build_confirmation_text(pending),
-            reply_markup=_build_confirmation_keyboard(),
+            reply_markup=_build_confirmation_keyboard(show_change_start=show_change_start),
             parse_mode="HTML",
         )
 
@@ -210,27 +229,47 @@ class BotHandler:
                 reply_markup=InlineKeyboardMarkup([]),
             )
 
+            focus = pending.get("focus")
             dest_point = (pending["dest_lat"], pending["dest_lon"])
             start_point = (pending["start_lat"], pending["start_lon"])
             corridor = build_route_corridor(start_point, dest_point)
-            data = await run_all_fetchers(corridor, start_point, dest_point, pending["dest_name"])
+            data = await run_all_fetchers(corridor, start_point, dest_point, pending["dest_name"], focus=focus)
 
-            is_alpine = data["weather"].is_alpine if data["weather"] else False
+            if focus == "driving":
+                report = assemble_driving_report(
+                    destination_name=pending["dest_name"],
+                    start_name=pending["start_name"],
+                    road_events=data["road_events"],
+                    eta=data.get("eta"),
+                )
+            elif focus == "avalanche":
+                report = assemble_avalanche_report(
+                    pending["dest_name"], data.get("avalanche"), weather=data.get("weather")
+                )
+            elif focus == "weather":
+                report = assemble_3day_report(pending["dest_name"], data["weather_3day"])
+            elif focus == "wildfire":
+                report = assemble_wildfire_report(pending["dest_name"], data["fires"])
+            elif focus == "wildlife":
+                report = assemble_wildlife_report(pending["dest_name"], data["advisories"])
+            else:
+                is_alpine = data["weather"].is_alpine if data["weather"] else False
+                report = assemble_report(
+                    destination_name=pending["dest_name"],
+                    start_name=pending["start_name"],
+                    road_events=data["road_events"],
+                    weather=data["weather"],
+                    fires=data["fires"],
+                    advisories=data["advisories"],
+                    eta=data.get("eta"),
+                    avalanche=data.get("avalanche"),
+                )
 
-            report = assemble_report(
-                destination_name=pending["dest_name"],
-                start_name=pending["start_name"],
-                road_events=data["road_events"],
-                weather=data["weather"],
-                fires=data["fires"],
-                advisories=data["advisories"],
-                eta=data.get("eta"),
-                avalanche=data.get("avalanche"),
-            )
+            is_alpine = data["weather"].is_alpine if data.get("weather") else False
             await query.edit_message_text(
                 report,
                 parse_mode="HTML",
-                reply_markup=_build_post_report_keyboard(is_alpine),
+                reply_markup=_build_post_report_keyboard(is_alpine, focus=focus),
             )
 
             session["last_destination"] = {
@@ -423,7 +462,7 @@ class BotHandler:
                         **session,
                         "starting_point": {"name": loc.name, "lat": loc.lat, "lon": loc.lon, "source": "nlp"},
                     })
-            await self._run_scout_flow(update.message, intent.destination, user_id, trip_date=intent.trip_date)
+            await self._run_scout_flow(update.message, intent.destination, user_id, trip_date=intent.trip_date, focus=intent.focus)
 
         elif intent.skill == "set_start":
             if not intent.location:

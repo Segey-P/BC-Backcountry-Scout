@@ -72,14 +72,24 @@ Gemini is prompted to return one of:
   "destination": "Elfin Lakes, BC",
   "start": "Squamish, BC",
   "destination_type": "mountain",
-  "trip_date": "tomorrow"
+  "trip_date": "tomorrow",
+  "focus": null
+}
+{
+  "skill": "scout",
+  "destination": "Brandywine Meadows, BC",
+  "start": null,
+  "destination_type": "alpine",
+  "trip_date": "today",
+  "focus": "avalanche"
 }
 {
   "skill": "scout",
   "destination": "Whistler, BC",
-  "start": "Vancouver, BC",
+  "start": "Squamish, BC",
   "destination_type": "city",
-  "trip_date": "today"
+  "trip_date": "today",
+  "focus": "driving"
 }
 {"skill": "set_start", "location": "Squamish, BC"}
 {"skill": "help"}
@@ -96,6 +106,7 @@ Gemini is prompted to return one of:
 | `start` | string or null | Null → resolved from session |
 | `destination_type` | `mountain` \| `alpine` \| `lake` \| `trail` \| `park` \| `city` \| `unknown` | Gemini infers from name; geocoder may refine |
 | `trip_date` | `today` \| `tomorrow` \| ISO date string \| null | Null → today |
+| `focus` | `driving` \| `avalanche` \| `weather` \| `wildfire` \| `wildlife` \| null | Null = full report. Set only when user clearly asks for a single data type. |
 
 ### 3.3 Skills map
 
@@ -233,9 +244,29 @@ class Intent:
     start: str | None = None
     destination_type: str | None = None   # mountain | alpine | lake | trail | park | city | unknown
     trip_date: str | None = None          # "today" | "tomorrow" | "YYYY-MM-DD" | None
+    focus: str | None = None              # driving | avalanche | weather | wildfire | wildlife | None (full)
     location: str | None = None
     reason: str | None = None
 ```
+
+---
+
+## 7b. Focused queries (focus field)
+
+When `focus` is set, the bot runs only the relevant fetchers and renders a focused response.
+If `focus` is null (or the user typed a general query), the full scout report is returned as usual.
+
+| focus | Fetchers run | Assembler | Confirmation shows "From"? |
+|---|---|---|---|
+| null | all | `assemble_report` | yes |
+| `driving` | DriveBC + ETA | `assemble_driving_report` | yes |
+| `avalanche` | avalanche + weather (alpine context) | `assemble_avalanche_report(weather=...)` | no |
+| `weather` | weather 3-day | `assemble_3day_report` | no |
+| `wildfire` | wildfire | `assemble_wildfire_report` | no |
+| `wildlife` | wildlife news | `assemble_wildlife_report` | no |
+
+"Change start" button is hidden on the confirmation card for non-driving focuses.
+Post-report keyboard shows only "Scout new" for focused reports (no 3-day/avalanche drill-downs).
 
 ---
 

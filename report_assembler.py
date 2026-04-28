@@ -143,7 +143,11 @@ def assemble_3day_report(destination_name: str, forecasts: list[DayForecast]) ->
     return "\n".join(lines)
 
 
-def assemble_avalanche_report(destination_name: str, avx: Optional[AvalancheReport]) -> str:
+def assemble_avalanche_report(
+    destination_name: str,
+    avx: Optional[AvalancheReport],
+    weather: Optional[WeatherReport] = None,
+) -> str:
     if not avx or not avx.days:
         return (
             f"🏔️ <b>Avalanche Forecast — {_e(destination_name)}</b>\n\n"
@@ -170,19 +174,97 @@ def assemble_avalanche_report(destination_name: str, avx: Optional[AvalancheRepo
         lines.append("")
         lines.append(_e(avx.highlights[:300]))
 
+    if weather and weather.is_alpine and weather.current_temp is not None:
+        lines.append("")
+        wind_str = f"{weather.current_wind:.0f} km/h" if weather.current_wind else "calm"
+        gusts_str = f", gusts {weather.wind_gusts:.0f} km/h" if weather.wind_gusts else ""
+        lines.append(f"❄️ Alpine now: {_e(weather.current_temp)}°C, {_e(wind_str)}{_e(gusts_str)}")
+        if weather.snow_depth is not None:
+            lines.append(f"Snow depth: {weather.snow_depth:.0f}cm")
+        if weather.snowfall_24h and weather.snowfall_24h > 0:
+            lines.append(f"Recent snowfall: {weather.snowfall_24h:.1f}cm")
+        if weather.freezing_level:
+            lines.append(f"Freezing level: {weather.freezing_level:.0f}m")
+
     lines.append("")
     lines.append('<i>Source: <a href="https://www.avalanche.ca">avalanche.ca</a> · Always verify before you go.</i>')
     return "\n".join(lines)
 
 
-async def run_all_fetchers(
-    corridor_polygon, start_point: tuple, destination_point: tuple, destination_name: str
-) -> dict:
-    """Run all data fetchers in parallel with 8-second timeout per fetcher."""
+def assemble_driving_report(
+    destination_name: str,
+    start_name: str,
+    road_events: list[RoadEvent],
+    eta: Optional[ETAResult],
+) -> str:
+    lines = [f"🚗 <b>Driving: {_e(start_name)} → {_e(destination_name)}</b>", ""]
 
+    if road_events:
+        for event in road_events:
+            lines.append(f"⚠️ {_e(event.headline)}")
+    else:
+        lines.append("✅ No road events on route")
+
+    lines.append("")
+    if eta:
+        lines.append(f"ETA: <b>{_e(eta.duration_traffic_text)}</b> with traffic ({_e(eta.distance_text)})")
+    else:
+        lines.append("⚠️ Travel time unavailable")
+
+    lines.append("")
+    now = datetime.now(tz=_PACIFIC).strftime("%H:%M %Z")
+    lines.append(f"<i>Source: DriveBC + Google Maps · {now}</i>")
+    return "\n".join(lines)
+
+
+def assemble_wildfire_report(destination_name: str, fires: list[FireIncident]) -> str:
+    lines = [f"🔥 <b>Wildfire Status — {_e(destination_name)}</b>", ""]
+
+    if fires:
+        for fire in fires:
+            lines.append(
+                f"🔥 {_e(fire.name)} ({fire.size_hectares:.0f}ha, {fire.distance_to_destination_km:.1f}km away)"
+            )
+    else:
+        lines.append("✅ No active wildfires within 25km of destination or on route")
+
+    lines.append("")
+    now = datetime.now(tz=_PACIFIC).strftime("%H:%M %Z")
+    lines.append(
+        f"<i>Source: BC Wildfire Service · {now} · "
+        '<a href="https://www2.gov.bc.ca/gov/content/safety/wildfire-status">bcwildfire.ca</a></i>'
+    )
+    return "\n".join(lines)
+
+
+def assemble_wildlife_report(destination_name: str, advisories: list[Advisory]) -> str:
+    lines = [f"🐻 <b>Wildlife Advisories — {_e(destination_name)}</b>", ""]
+
+    if advisories:
+        for adv in advisories:
+            lines.append(f"🔔 {_e(adv.summary)} ({_e(adv.source)})")
+    else:
+        lines.append("✅ No active wildlife advisories for this area")
+
+    lines.append("")
+    now = datetime.now(tz=_PACIFIC).strftime("%H:%M %Z")
+    lines.append(f"<i>Source: WildSafeBC + Squamish Chief · {now}</i>")
+    return "\n".join(lines)
+
+
+async def run_all_fetchers(
+    corridor_polygon, start_point: tuple, destination_point: tuple, destination_name: str,
+    focus: str | None = None,
+) -> dict:
+    """Run data fetchers in parallel with 8-second timeout each.
+
+    When focus is set, only fetchers relevant to that focus are called.
+    focus=None runs everything (full scout report).
+    """
     results = {
         "road_events": [],
         "weather": None,
+        "weather_3day": [],
         "fires": [],
         "advisories": [],
         "eta": None,
@@ -195,20 +277,25 @@ async def run_all_fetchers(
         except (asyncio.TimeoutError, Exception):
             return None
 
-    road_events, weather, fires, advisories, eta, avalanche = await asyncio.gather(
-        _run(asyncio.to_thread(fetch_drivebc_events, corridor_polygon)),
-        _run(asyncio.to_thread(fetch_weather, destination_point[0], destination_point[1])),
-        _run(asyncio.to_thread(fetch_wildfire, corridor_polygon, destination_point)),
-        _run(asyncio.to_thread(fetch_wildlife_news, corridor_polygon, destination_name)),
-        _run(asyncio.to_thread(fetch_eta, start_point, destination_point)),
-        _run(asyncio.to_thread(fetch_avalanche, destination_point[0], destination_point[1])),
-    )
+    list_keys = {"road_events", "fires", "advisories", "weather_3day"}
 
-    results["road_events"] = road_events or []
-    results["weather"] = weather
-    results["fires"] = fires or []
-    results["advisories"] = advisories or []
-    results["eta"] = eta
-    results["avalanche"] = avalanche
+    task_map = {}
+    if focus in (None, "driving"):
+        task_map["road_events"] = asyncio.to_thread(fetch_drivebc_events, corridor_polygon)
+        task_map["eta"] = asyncio.to_thread(fetch_eta, start_point, destination_point)
+    if focus in (None, "avalanche"):
+        task_map["weather"] = asyncio.to_thread(fetch_weather, destination_point[0], destination_point[1])
+        task_map["avalanche"] = asyncio.to_thread(fetch_avalanche, destination_point[0], destination_point[1])
+    if focus == "weather":
+        task_map["weather_3day"] = asyncio.to_thread(fetch_weather_3day, destination_point[0], destination_point[1])
+    if focus in (None, "wildfire"):
+        task_map["fires"] = asyncio.to_thread(fetch_wildfire, corridor_polygon, destination_point)
+    if focus in (None, "wildlife"):
+        task_map["advisories"] = asyncio.to_thread(fetch_wildlife_news, corridor_polygon, destination_name)
+
+    keys = list(task_map.keys())
+    fetched = await asyncio.gather(*[_run(task_map[k]) for k in keys])
+    for key, value in zip(keys, fetched):
+        results[key] = (value or []) if key in list_keys else value
 
     return results

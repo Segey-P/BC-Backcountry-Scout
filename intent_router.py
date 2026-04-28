@@ -14,7 +14,7 @@ Schema: {"skill": <"scout"|"set_start"|"help"|"clear"|"unknown">, ...skill-speci
 Skills:
 - scout: user wants conditions for ANY BC trip or destination — backcountry, hiking, driving, visiting a city.
   Triggers: "conditions at X", "going to X", "heading to X", "driving to X", "I will be going from X to Y", "visiting X", "trip to X".
-  Fields: destination (string), start (string or null), destination_type (string), trip_date (string or null)
+  Fields: destination (string), start (string or null), destination_type (string), trip_date (string or null), focus (string or null)
 - set_start: user is setting their starting location. Fields: location (string)
 - help: user wants to know what the bot can do. No extra fields.
 - clear: user wants to reset their session. No extra fields.
@@ -22,6 +22,13 @@ Skills:
 
 destination_type values: mountain, alpine, lake, trail, park, city, unknown
 trip_date: "today", "tomorrow", or ISO date YYYY-MM-DD. Null if not mentioned (assume today).
+focus: null for a general conditions report. Set to one of these ONLY when the user clearly asks for a single data type:
+  "driving"  — user only asks about road conditions, traffic, or drive time (e.g. "how is the drive to X", "traffic on Sea to Sky")
+  "avalanche" — user only asks about avalanche conditions or snowpack (e.g. "avalanche forecast for X", "what's the avy danger")
+  "weather"  — user only asks about weather or forecast (e.g. "weather at X", "will it rain at X this weekend")
+  "wildfire" — user only asks about fires (e.g. "any fires near X", "wildfire status")
+  "wildlife" — user only asks about wildlife or trail advisories (e.g. "any bears near X", "wildlife advisories")
+  Default to null when intent is general or mixed ("conditions at X", "should I go to X").
 
 Rules:
 - Always return JSON only.
@@ -55,6 +62,7 @@ class Intent:
     start: str | None = None
     destination_type: str | None = None   # mountain | alpine | lake | trail | park | city | unknown
     trip_date: str | None = None          # today | tomorrow | YYYY-MM-DD | None
+    focus: str | None = None              # driving | avalanche | weather | wildfire | wildlife | None (full)
     location: str | None = None
     reason: str | None = None
 
@@ -94,12 +102,17 @@ def parse_intent(text: str) -> Intent:
     if skill not in ("scout", "set_start", "help", "clear", "unknown"):
         skill = "unknown"
 
+    raw_focus = data.get("focus")
+    valid_focuses = ("driving", "avalanche", "weather", "wildfire", "wildlife")
+    focus = raw_focus if raw_focus in valid_focuses else None
+
     return Intent(
         skill=skill,
         destination=data.get("destination"),
         start=data.get("start"),
         destination_type=data.get("destination_type"),
         trip_date=data.get("trip_date"),
+        focus=focus,
         location=data.get("location"),
         reason=data.get("reason"),
     )

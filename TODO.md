@@ -6,6 +6,7 @@
 - [ ] Alpine freezing level trends (24h forecast visualization in weather report)
 - [ ] Environment Canada CAP alert full XML parsing (replace RSS stub)
 - [ ] BC Geographic Names Web Service (GNWS) real integration (replace stub)
+- [ ] focus=driving: post-report "Full scout" button to upgrade to full report from same destination
 
 ---
 
