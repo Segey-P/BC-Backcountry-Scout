@@ -1,26 +1,20 @@
 # BC Backcountry Scout — NLP Intent Router (Gemini)
 
-**Version:** 0.2
+**Version:** 0.3
 **Date:** April 2026
-**Status:** Planned — Phase 2
+**Status:** Implemented — live on main
 
 ---
 
-## 1. Problem
+## 1. Problem (original) / Status
 
-The bot currently only responds to slash commands (`/scout`, `/from`, `/help`, etc.).
-Users have to know the exact syntax. Natural sentences like:
+Originally the bot only responded to slash commands. Natural sentences were ignored.
+Additionally, every query returned the full report regardless of what the user asked about.
 
-> "I want to go to Whistler from Vancouver"
-> "what's the road like to Alice Lake today"
-> "any bears near Garibaldi"
-> "going to Elfin Lakes tomorrow"
-
-…are ignored or hit the unknown-command handler.
-
-Additionally, the report is currently one-size-fits-all. A trip to a mountain peak
-deserves an avalanche + alpine weather focus; a drive to a city deserves an ETA +
-road conditions focus; a future-date trip has no need for current traffic.
+Both problems are now solved. NLP is live behind `NLP_ENABLED=true`. The system prompt
+has been tuned through one production bug (scout triggers too narrow → "unknown" returned
+for valid queries like "Weather at Watersprite?") and a geocoder quality-gate fix was
+shipped alongside it.
 
 ---
 
