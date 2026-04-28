@@ -142,22 +142,35 @@ def assemble_report(
     return message
 
 
-def assemble_3day_report(destination_name: str, forecasts: list[DayForecast]) -> str:
+def assemble_3day_report(
+    destination_name: str,
+    forecasts: list[DayForecast],
+    lat: float | None = None,
+    lon: float | None = None,
+) -> str:
     if not forecasts:
         return f"📅 <b>3-Day Forecast — {_e(destination_name)}</b>\n\nData unavailable."
 
-    lines = [f"📅 <b>3-Day Forecast — {_e(destination_name)}</b>", ""]
+    elevation = forecasts[0].elevation if forecasts else None
+    elev_str = f" ({elevation:.0f}m)" if elevation else ""
+    lines = [f"📅 <b>3-Day Forecast — {_e(destination_name)}</b>{elev_str}", ""]
+
     for day in forecasts:
         snow_str = f", {day.snow_cm:.0f}cm snow" if day.snow_cm >= 0.5 else ""
+        freeze_str = f", freezing {day.freezing_level:.0f}m" if day.freezing_level is not None else ""
         lines.append(
             f"<b>{_e(day.date)}</b>: {_e(day.condition)}"
             f" ↑{day.temp_max:.0f}° ↓{day.temp_min:.0f}°"
-            f", {day.precip_mm:.1f}mm{snow_str}"
+            f", {day.precip_mm:.1f}mm{snow_str}{freeze_str}"
         )
 
     lines.append("")
     now = datetime.now(tz=_PACIFIC).strftime("%H:%M %Z")
-    lines.append(f"<i>Source: Open-Meteo · {now}</i>")
+    windy_link = (
+        f' · <a href="https://www.windy.com/{lat:.2f}/{lon:.2f}">Windy</a>'
+        if lat is not None and lon is not None else ""
+    )
+    lines.append(f"<i>Source: Open-Meteo · {now}{windy_link}</i>")
     return "\n".join(lines)
 
 

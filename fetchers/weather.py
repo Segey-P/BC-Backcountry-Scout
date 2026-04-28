@@ -131,6 +131,14 @@ class DayForecast:
     precip_mm: float
     snow_cm: float
     condition: str
+    elevation: float | None = None       # terrain elevation at destination (same for all days)
+    freezing_level: float | None = None  # daily mean freezing level
+
+
+def _day_mean_freezing(hourly_freezing: list, day_index: int) -> float | None:
+    start = day_index * 24
+    values = [v for v in hourly_freezing[start:start + 24] if v is not None]
+    return sum(values) / len(values) if values else None
 
 
 def _fetch_weather_3day_uncached(lat: float, lon: float) -> list[DayForecast]:
@@ -138,6 +146,7 @@ def _fetch_weather_3day_uncached(lat: float, lon: float) -> list[DayForecast]:
         "latitude": lat,
         "longitude": lon,
         "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum,weathercode",
+        "hourly": "freezinglevel_height",
         "forecast_days": 3,
         "timezone": "auto",
     }
@@ -155,9 +164,11 @@ def _fetch_weather_3day_uncached(lat: float, lon: float) -> list[DayForecast]:
     precips = daily.get("precipitation_sum") or []
     snows = daily.get("snowfall_sum") or []
     codes = daily.get("weathercode") or []
+    elevation = data.get("elevation")
+    hourly_freezing = (data.get("hourly") or {}).get("freezinglevel_height") or []
 
     result = []
-    for dt, hi, lo, pr, sn, code in zip(dates, highs, lows, precips, snows, codes):
+    for i, (dt, hi, lo, pr, sn, code) in enumerate(zip(dates, highs, lows, precips, snows, codes)):
         try:
             d = datetime.strptime(dt, "%Y-%m-%d")
             date_str = d.strftime("%a %b %-d")
@@ -171,6 +182,8 @@ def _fetch_weather_3day_uncached(lat: float, lon: float) -> list[DayForecast]:
             precip_mm=pr or 0,
             snow_cm=sn or 0,
             condition=condition,
+            elevation=elevation,
+            freezing_level=_day_mean_freezing(hourly_freezing, i),
         ))
     return result
 

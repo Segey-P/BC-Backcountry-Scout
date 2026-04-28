@@ -279,7 +279,7 @@ class BotHandler:
                     pending["dest_name"], data.get("avalanche"), weather=data.get("weather")
                 )
             elif focus == "weather":
-                report = assemble_3day_report(pending["dest_name"], data["weather_3day"])
+                report = assemble_3day_report(pending["dest_name"], data["weather_3day"], lat=dest_point[0], lon=dest_point[1])
             elif focus == "wildfire":
                 report = assemble_wildfire_report(pending["dest_name"], data["fires"])
             elif focus == "wildlife":
@@ -355,7 +355,7 @@ class BotHandler:
                 )
             except (asyncio.TimeoutError, Exception):
                 forecasts = []
-            report = assemble_3day_report(name, forecasts)
+            report = assemble_3day_report(name, forecasts, lat=lat, lon=lon)
             await status.edit_text(report, parse_mode="HTML")
 
         elif query.data == "ext_avalanche":
