@@ -9,7 +9,7 @@
 - **Repo:** github.com/Segey-P/BC-Backcountry-Scout
 - **Purpose:** Telegram bot that pulls road conditions, weather, wildfires, and wildlife advisories for a BC backcountry destination in one message.
 - **Stack:** Python + python-telegram-bot
-- **Deploy:** Self-hosted (Linux server, systemd service)
+- **Deploy:** Self-hosted (Oracle Cloud, systemd service) — see `deploy/server.md` for server details, commands, and deploy procedure
 - **Telegram bot:** @bc_scout_bot
 
 ## User Profile
@@ -56,4 +56,5 @@ Up to 6 items are shown in the dashboard.
 | `CLAUDE.md` | AI agent instructions (this file) |
 | `AGENTS.md` | Agent-neutral mirror of CLAUDE.md |
 | `specs/` | Authoritative spec documents |
+| `deploy/server.md` | Server details: hostname, user, paths, service name, deploy commands |
 
