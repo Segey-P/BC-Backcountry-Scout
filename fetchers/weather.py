@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -192,25 +193,52 @@ def fetch_weather_3day(lat: float, lon: float) -> list[DayForecast]:
     return result
 
 
-def _fetch_ec_alerts(lat: float, lon: float) -> list[str]:
-    """Fetch Environment Canada CAP alerts for the area. Returns empty list if unavailable."""
+_EC_ALERT_KEYWORDS = frozenset({"WARNING", "WATCH", "ADVISORY", "STATEMENT", "ENDED"})
+_EC_FEED_URL = "https://weather.gc.ca/rss/warning/bc_e.xml"
+
+
+def _parse_ec_xml(xml_bytes: bytes) -> list[str]:
     try:
-        # BC-wide warnings RSS feed; full CAP XML parsing is Phase 2
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return []
+
+    alerts: list[str] = []
+    tag = root.tag
+
+    if "feed" in tag or tag == "{http://www.w3.org/2005/Atom}feed":
+        # Atom feed
+        atom_ns = "http://www.w3.org/2005/Atom"
+        for entry in root.findall(f"{{{atom_ns}}}entry"):
+            title = (entry.findtext(f"{{{atom_ns}}}title") or "").strip()
+            _maybe_add_alert(title, alerts)
+    else:
+        # RSS 2.0: root is <rss>, items are inside <channel>
+        for item in root.iter("item"):
+            title = (item.findtext("title") or "").strip()
+            _maybe_add_alert(title, alerts)
+
+    return alerts[:5]
+
+
+def _maybe_add_alert(title: str, alerts: list[str]) -> None:
+    upper = title.upper()
+    if title and any(kw in upper for kw in _EC_ALERT_KEYWORDS):
+        # Skip the generic feed-level title entries (e.g. "BC Warnings", "No alerts")
+        if len(title) > 15 and "NO ALERTS" not in upper:
+            alerts.append(title)
+
+
+def _fetch_ec_alerts(lat: float, lon: float) -> list[str]:
+    try:
         response = httpx.get(
-            "https://weather.gc.ca/rss/warning/bc_e.xml",
+            _EC_FEED_URL,
             timeout=_TIMEOUT,
             headers={"User-Agent": "BCBackcountryScout/1.0"},
         )
         if response.status_code != 200:
             return []
-        alerts = []
-        for line in response.text.splitlines():
-            line = line.strip()
-            if line.startswith("<title>") and "WARNING" in line.upper():
-                title = line.replace("<title>", "").replace("</title>", "").strip()
-                if title:
-                    alerts.append(title)
-        return alerts[:5]
+        return _parse_ec_xml(response.content)
     except Exception:
         return []
 

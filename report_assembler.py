@@ -19,6 +19,20 @@ def _e(value) -> str:
     return html.escape(str(value))
 
 
+def _freezing_level_trend(forecast_24h: list[dict]) -> str:
+    levels = [h["freezing_level"] for h in forecast_24h if h.get("freezing_level") is not None]
+    if len(levels) < 6:
+        return ""
+    first = sum(levels[:4]) / 4
+    last = sum(levels[-4:]) / 4
+    delta = last - first
+    if delta > 150:
+        return " ↑ rising"
+    if delta < -150:
+        return " ↓ falling"
+    return " → stable"
+
+
 def assemble_report(
     destination_name: str,
     start_name: str,
@@ -72,7 +86,8 @@ def assemble_report(
         if weather.forecast_24h:
             precip_12h = sum(h.get("precip", 0) for h in weather.forecast_24h[:12])
             freezing = weather.freezing_level if weather.freezing_level else "N/A"
-            lines.append(f"Next 12h: {precip_12h:.1f}mm precip, freezing level {freezing}m")
+            trend = _freezing_level_trend(weather.forecast_24h)
+            lines.append(f"Next 12h: {precip_12h:.1f}mm precip, freezing level {freezing}m{trend}")
         if weather.is_alpine:
             if weather.snow_depth is not None:
                 lines.append(f"Snow depth: {weather.snow_depth:.0f}cm")

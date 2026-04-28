@@ -2,7 +2,7 @@ import asyncio
 import html
 import logging
 import os
-from datetime import date
+from datetime import date, datetime, timezone
 from difflib import get_close_matches
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -51,8 +51,11 @@ _WELCOME = (
     "<b>Commands</b>\n"
     "/scout — Full pre-trip report\n"
     "/from &lt;location&gt; — Set your starting point\n"
+    "/watch — Subscribe to condition alerts for current destination\n"
+    "/unwatch — Stop condition alerts\n"
     "/clear — Reset session\n"
     "/help — Show this list\n\n"
+    "💡 <b>Tip:</b> Share your GPS location to set your starting point automatically.\n\n"
     "⚠️ <b>Safety notice</b>\n"
     + _DISCLAIMER
 )
@@ -61,18 +64,25 @@ _HELP = (
     "<b>BC Backcountry Scout — Commands</b>\n\n"
     "/scout — Full pre-trip report\n"
     "/from &lt;location&gt; — Set your starting point\n"
+    "/watch — Subscribe to condition alerts\n"
+    "/unwatch — Stop condition alerts\n"
     "/clear — Reset session\n"
-    "/help — Show this list"
+    "/help — Show this list\n\n"
+    "💡 Share your GPS location to update your starting point."
 )
 
-_KNOWN_COMMANDS = ["/scout", "/from", "/clear", "/help", "/start"]
+_KNOWN_COMMANDS = ["/scout", "/from", "/watch", "/unwatch", "/clear", "/help", "/start"]
 
 _BOT_COMMANDS = [
     BotCommand("scout", "Full pre-trip report for a BC destination"),
     BotCommand("from", "Set your starting point"),
+    BotCommand("watch", "Subscribe to condition alerts for current destination"),
+    BotCommand("unwatch", "Stop condition alerts"),
     BotCommand("clear", "Reset session"),
     BotCommand("help", "Show all commands"),
 ]
+
+_SQUAMISH_DEFAULT = (49.7016, -123.1558)
 
 
 def _build_confirmation_text(pending: dict) -> str:
@@ -137,15 +147,22 @@ class BotHandler:
 
     async def _post_init(self, app):
         await app.bot.set_my_commands(_BOT_COMMANDS)
+        if app.job_queue:
+            app.job_queue.run_repeating(self._check_alerts_job, interval=1800, first=120)
+            logger.info("Proactive alert job registered (30-min interval)")
 
     def _register_handlers(self):
         self.app.add_handler(CommandHandler("start", self._cmd_start))
         self.app.add_handler(CommandHandler("help", self._cmd_help))
         self.app.add_handler(CommandHandler("scout", self._cmd_scout))
         self.app.add_handler(CommandHandler("from", self._cmd_from))
+        self.app.add_handler(CommandHandler("watch", self._cmd_watch))
+        self.app.add_handler(CommandHandler("unwatch", self._cmd_unwatch))
         self.app.add_handler(CommandHandler("clear", self._cmd_clear))
         self.app.add_handler(CallbackQueryHandler(self._on_confirm_button, pattern="^scout_"))
         self.app.add_handler(CallbackQueryHandler(self._on_post_report_button, pattern="^ext_"))
+        self.app.add_handler(CallbackQueryHandler(self._on_quick_button, pattern="^quick_"))
+        self.app.add_handler(MessageHandler(filters.LOCATION, self._on_location_message))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self._on_text_message))
         # Catch unknown /commands last so specific handlers take priority
         self.app.add_handler(MessageHandler(filters.COMMAND, self._cmd_unknown))
@@ -161,12 +178,26 @@ class BotHandler:
         query = " ".join(context.args).strip() if context.args else ""
         if not query:
             session = load_session(user_id) or {}
-            await update.message.reply_text(
-                "🔍 <b>I am here to help.</b>\n\nWhere would you like to go today?",
-                parse_mode="HTML",
-            )
             session["waiting_for"] = "scout_destination"
             save_session(user_id, session)
+            last_dest = session.get("last_destination")
+            if last_dest:
+                keyboard = InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        f"🔁 {last_dest['name']}", callback_data="quick_rescout"
+                    )
+                ]])
+                await update.message.reply_text(
+                    "🔍 <b>Where would you like to go?</b>\n\n"
+                    "Type a BC destination, or tap below to re-scout your last trip:",
+                    parse_mode="HTML",
+                    reply_markup=keyboard,
+                )
+            else:
+                await update.message.reply_text(
+                    "🔍 <b>Where would you like to go?</b>\n\nType a BC destination:",
+                    parse_mode="HTML",
+                )
             return
         await self._run_scout_flow(update.message, query, user_id)
 
@@ -421,6 +452,151 @@ class BotHandler:
     async def _cmd_clear(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         clear_session(update.effective_user.id)
         await update.message.reply_text("Session cleared.")
+
+    async def _cmd_watch(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        session = load_session(user_id) or {}
+        last_dest = session.get("last_destination")
+        if not last_dest:
+            await update.message.reply_text(
+                "No active destination. Use /scout first, then /watch to subscribe to alerts.",
+                parse_mode="HTML",
+            )
+            return
+        start = session.get("starting_point")
+        session["watch"] = {
+            "dest_name": last_dest["name"],
+            "dest_lat": last_dest["lat"],
+            "dest_lon": last_dest["lon"],
+            "start_lat": start["lat"] if start else _SQUAMISH_DEFAULT[0],
+            "start_lon": start["lon"] if start else _SQUAMISH_DEFAULT[1],
+            "last_state": {},
+            "last_check": None,
+        }
+        save_session(user_id, session)
+        await update.message.reply_text(
+            f"🔔 <b>Watching {html.escape(last_dest['name'])}</b>\n\n"
+            "I'll notify you when road conditions, fires, or advisories change.\n\n"
+            "Use /unwatch to stop.",
+            parse_mode="HTML",
+        )
+
+    async def _cmd_unwatch(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        session = load_session(user_id) or {}
+        if "watch" not in session:
+            await update.message.reply_text("No active watch. Use /watch after a /scout to subscribe.")
+            return
+        dest_name = session["watch"].get("dest_name", "destination")
+        session.pop("watch", None)
+        save_session(user_id, session)
+        await update.message.reply_text(f"🔕 Stopped watching {html.escape(dest_name)}.")
+
+    async def _on_location_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        loc = update.message.location
+        lat, lon = loc.latitude, loc.longitude
+        session = load_session(user_id) or {}
+        session["starting_point"] = {
+            "name": f"Your location ({lat:.4f}, {lon:.4f})",
+            "lat": lat,
+            "lon": lon,
+            "source": "gps",
+        }
+        session.pop("waiting_for", None)
+        save_session(user_id, session)
+        pending = session.get("pending_trip")
+        if pending:
+            pending["start_name"] = session["starting_point"]["name"]
+            pending["start_lat"] = lat
+            pending["start_lon"] = lon
+            session["pending_trip"] = pending
+            save_session(user_id, session)
+            conf_text = _build_confirmation_text(pending)
+            keyboard = _build_confirmation_keyboard()
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=pending["confirmation_message_id"],
+                    text=conf_text,
+                    reply_markup=keyboard,
+                    parse_mode="HTML",
+                )
+            except Exception:
+                await update.message.reply_text(conf_text, reply_markup=keyboard, parse_mode="HTML")
+        else:
+            await update.message.reply_text(
+                f"📍 Starting point set to your GPS location. Use /scout to search for a destination.",
+                parse_mode="HTML",
+            )
+
+    async def _on_quick_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        user_id = query.from_user.id
+        await query.answer()
+        if query.data == "quick_rescout":
+            session = load_session(user_id) or {}
+            last_dest = session.get("last_destination")
+            if not last_dest:
+                await query.edit_message_text("No recent destination. Please type a destination.")
+                return
+            session.pop("waiting_for", None)
+            save_session(user_id, session)
+            await query.edit_message_reply_markup(InlineKeyboardMarkup([]))
+            await self._run_scout_flow(query.message, last_dest["name"], user_id)
+
+    async def _check_alerts_job(self, context: ContextTypes.DEFAULT_TYPE):
+        from session import SESSION_FILE
+        from session import _read_all  # noqa: PLC0415 — private access needed to iterate all users
+        all_sessions = _read_all(SESSION_FILE)
+        for uid_str, session in all_sessions.items():
+            watch = session.get("watch")
+            if not watch:
+                continue
+            try:
+                await self._process_watch(context, int(uid_str), watch)
+            except Exception as exc:
+                logger.warning("Alert check failed for user %s: %s", uid_str, exc)
+
+    async def _process_watch(self, context: ContextTypes.DEFAULT_TYPE, user_id: int, watch: dict):
+        dest_point = (watch["dest_lat"], watch["dest_lon"])
+        start_point = (watch["start_lat"], watch["start_lon"])
+        corridor = build_route_corridor(start_point, dest_point)
+        try:
+            fetched = await asyncio.wait_for(
+                run_all_fetchers(corridor, start_point, dest_point, watch["dest_name"]),
+                timeout=30,
+            )
+        except Exception:
+            return
+
+        road_ids = {ev.headline for ev in fetched["road_events"]}
+        fire_names = {f.name for f in fetched["fires"]}
+        last = watch.get("last_state", {})
+        new_roads = road_ids - set(last.get("road_event_ids", []))
+        new_fires = fire_names - set(last.get("fire_names", []))
+
+        if new_roads or new_fires:
+            lines = [f"🔔 <b>Conditions changed: {html.escape(watch['dest_name'])}</b>\n"]
+            for r in sorted(new_roads):
+                lines.append(f"⚠️ New road event: {html.escape(r)}")
+            for f in sorted(new_fires):
+                lines.append(f"🔥 New fire nearby: {html.escape(f)}")
+            lines.append("\nUse /scout to get the full report.")
+            try:
+                await context.bot.send_message(user_id, "\n".join(lines), parse_mode="HTML")
+            except Exception as exc:
+                logger.warning("Alert send failed for %s: %s", user_id, exc)
+
+        fresh = load_session(user_id) or {}
+        fresh_watch = fresh.get("watch", watch)
+        fresh_watch["last_state"] = {
+            "road_event_ids": list(road_ids),
+            "fire_names": list(fire_names),
+        }
+        fresh_watch["last_check"] = datetime.now(timezone.utc).isoformat()
+        fresh["watch"] = fresh_watch
+        save_session(user_id, fresh)
 
     async def _cmd_unknown(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = update.message.text or ""
