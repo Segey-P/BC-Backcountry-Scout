@@ -20,7 +20,9 @@
 | Trip flow | Confirmation step before fetch | Inline buttons: Scout it / Change start |
 | Allowlist storage | JSON file | Switchable to open access in Phase 2 |
 | Session purging | Weekly | Privacy-first |
-| Geocoding bias | Live GPS → last point → Squamish default | GPS location message now supported |
+| Geocoding bias | Live GPS → last point → Squamish default | GPS keyboard button added; one-tap request_location in /from and Change Start |
+| Snow depth | Removed (inaccurate) | Replaced with "New snow today" only when snowfall > 0 |
+| Seasonal features | Avalanche Oct–Apr; Wildlife Apr–Nov | Both fetcher and display suppressed off-season |
 | Language | English only | Phase 2 if demand |
 | NLP at runtime | Gemini for intent parsing only | Not in data-fetch path; deterministic pipeline unchanged |
 | Context-aware reports | destination_type + trip_date fields from NLP | Mountain→alpine/avalanche; city→driving/ETA; future date→forecast, no live traffic |
