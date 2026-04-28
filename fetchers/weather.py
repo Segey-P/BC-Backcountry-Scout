@@ -39,7 +39,6 @@ class WeatherReport:
     alerts: list[str]
     timestamp: str
     elevation: float | None = None
-    snow_depth: float | None = None
     snowfall_24h: float | None = None
     wind_gusts: float | None = None
     is_alpine: bool = False
@@ -51,7 +50,7 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
         "longitude": lon,
         "hourly": (
             "temperature_2m,windspeed_10m,precipitation,freezinglevel_height,"
-            "snowfall,snow_depth,windgusts_10m"
+            "snowfall,windgusts_10m"
         ),
         "current_weather": "true",
         "forecast_days": 2,
@@ -77,7 +76,6 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
     precips = hourly.get("precipitation") or []
     freezing = hourly.get("freezinglevel_height") or []
     snowfalls = hourly.get("snowfall") or []
-    snow_depths = hourly.get("snow_depth") or []
     gusts = hourly.get("windgusts_10m") or []
 
     forecast_24h = [
@@ -86,6 +84,18 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
             times[:24], temps[:24], winds[:24], precips[:24], freezing[:24]
         )
     ]
+
+    # Snowfall since midnight today (fresh snow) — only populated if data exists and hour > 0
+    cw_time = cw.get("time") or ""
+    try:
+        _cur = times.index(cw_time)
+    except ValueError:
+        _cur = 0
+    fresh_snow = (
+        sum(s for s in snowfalls[:_cur] if s is not None)
+        if snowfalls and _cur > 0
+        else None
+    )
 
     alerts = _fetch_ec_alerts(lat, lon)
 
@@ -98,8 +108,7 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
         alerts=alerts,
         timestamp=cw.get("time") or datetime.now(timezone.utc).isoformat(),
         elevation=elevation,
-        snow_depth=snow_depths[0] if snow_depths else None,
-        snowfall_24h=sum(snowfalls[:24]) if snowfalls else None,
+        snowfall_24h=fresh_snow,
         wind_gusts=gusts[0] if gusts else None,
         is_alpine=(elevation or 0) > _ALPINE_ELEVATION_M,
     )

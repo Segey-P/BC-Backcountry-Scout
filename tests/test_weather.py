@@ -136,7 +136,6 @@ _ALPINE_OPEN_METEO = {
     "hourly": {
         **_SAMPLE_OPEN_METEO["hourly"],
         "snowfall": [2.0] * 24,
-        "snow_depth": [45.0] * 24,
         "windgusts_10m": [60.0] * 24,
     },
 }
@@ -151,11 +150,11 @@ def test_alpine_flag_set_above_threshold():
 
 
 def test_alpine_fields_populated():
+    # current_weather.time = "2026-04-25T14:00" → index 14 in times → 14 * 2.0 = 28.0
     with patch("fetchers.weather.httpx.get", return_value=_mock_response(_ALPINE_OPEN_METEO)):
         with patch("fetchers.weather._fetch_ec_alerts", return_value=[]):
             report = fetch_weather(50.05, -122.96)
-    assert report.snow_depth == 45.0
-    assert report.snowfall_24h == pytest.approx(48.0)  # 24 * 2.0
+    assert report.snowfall_24h == pytest.approx(28.0)
     assert report.wind_gusts == 60.0
 
 
@@ -174,6 +173,5 @@ def test_alpine_missing_from_mock_defaults_to_false():
             report = fetch_weather(49.7016, -123.1558)
     assert report.is_alpine is False
     assert report.elevation is None
-    assert report.snow_depth is None
     assert report.snowfall_24h is None
     assert report.wind_gusts is None

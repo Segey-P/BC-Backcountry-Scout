@@ -175,7 +175,6 @@ def test_assemble_report_alpine_weather():
         alerts=[],
         timestamp="2026-04-26T14:30:00Z",
         elevation=1900.0,
-        snow_depth=60.0,
         snowfall_24h=5.0,
         wind_gusts=75.0,
         is_alpine=True,
@@ -190,8 +189,7 @@ def test_assemble_report_alpine_weather():
     )
     assert "Alpine Weather" in report
     assert "1900" in report
-    assert "Snow depth" in report
-    assert "Recent snowfall" in report
+    assert "New snow today" in report
     assert "gusts" in report
     assert len(report) < 1500
 
