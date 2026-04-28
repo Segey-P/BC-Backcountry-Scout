@@ -1,7 +1,6 @@
 # BC Backcountry Scout — TODO
 
 - [ ] BC Geographic Names Web Service (GNWS) real integration (replace 39-feature fuzzy fallback list)
-- [ ] Deploy updated requirements.txt to server (`pip install -r requirements.txt` — adds APScheduler for /watch job)
 - [ ] focus=driving: post-report "Full scout" button to upgrade to full report from same destination
 
 ---
