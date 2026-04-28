@@ -1,6 +1,6 @@
 # BC Backcountry Scout — Requirements & Functionality
 
-**Version:** 0.2 (Phase 1 deployed; Phase 1.5 polish shipped)
+**Version:** 0.3 (NLP + focused queries + 3-day weather improvements shipped)
 **Date:** April 2026
 **Status:** Deployed to Oracle Cloud; iterating on real-world use
 
@@ -142,10 +142,11 @@ LLM use is reserved for:
 
 ### 4.2 Geocoding
 
-- **Approach:** Google Maps Geocoding API (primary) → fuzzy fallback against 35 hardcoded BC features
+- **Approach:** Google Maps Geocoding API (primary) → fuzzy fallback against 43 hardcoded BC features
 - **Status:**
   - **Google Maps Geocoding API:** **live** (`https://maps.googleapis.com/maps/api/geocode/json`). Uses `GOOGLE_MAPS_API_KEY` (same key as ETA/Directions). Results filtered to BC bounding box (lat 48.3–60.0, lon -139.1 to -114.0). `components=country:CA`, `bounds` set to BC box for viewport bias.
-  - **Fuzzy fallback:** 35 hardcoded BC features (cities, parks, peaks, FSRs) ranked by bidirectional token-match score. Used when Google returns nothing or no API key is set.
+  - **Quality gate:** Google results with name similarity < 0.55 to the query are discarded before merging with fuzzy results. Prevents clearly wrong Google results (e.g. "Cultus Lake" for "Watersprite Lake") from overriding a correct fuzzy match.
+  - **Fuzzy fallback:** 43 hardcoded BC features (cities, parks, peaks, FSRs, lakes) ranked by bidirectional token-match score. Used when Google returns nothing, no API key is set, or the quality gate filters all Google results.
 - **Reason for switch from Nominatim:** OSM coverage of BC backcountry trailheads, FSRs, named lakes, and peaks is patchy. Google Maps has significantly better coverage of these features.
 - **BC GNWS:** removed (was a stub; Google Maps covers the same scope with live data)
 
@@ -196,12 +197,14 @@ Every line in the assembled report carries an implicit reliability tier. The bot
 | `/start` | Welcome message + brief explanation + safety disclaimer |
 | `/scout <destination>` | Show trip confirmation, then fetch full report on confirm |
 | `/from <location>` | Manually set or override the starting point |
-| `/whereami` | Show current session state (start point, last destination) |
+| `/watch` | Subscribe to proactive condition alerts for the current destination (30-min job) |
+| `/unwatch` | Cancel condition alerts |
 | `/clear` | Clear the session |
 | `/help` | List commands |
 | Unknown command (e.g. `/scount`) | Suggest closest match using fuzzy match against known commands |
+| Free-text message (NLP_ENABLED=true) | Gemini parses intent → routes to scout, set_start, help, or clear |
 
-Sharing a Telegram **Live Location** at any time updates the live GPS slot in the session (Phase 2 — not yet implemented).
+Sharing a Telegram **Location** at any time updates the starting point in the session.
 
 ### 5.2 The destination-first interaction flow
 
@@ -326,7 +329,31 @@ If a fetcher times out:
 Data unavailable (timeout)
 ```
 
-### 5.9 Error states
+### 5.9 Focused queries (NLP)
+
+When NLP is enabled and the user clearly asks about a single data type, only the relevant fetchers run and a focused response is returned. `focus=null` (general or ambiguous query) falls back to the full scout report.
+
+| focus | Example trigger | Fetchers run | Assembler |
+|---|---|---|---|
+| null | "conditions at Alice Lake" | all | `assemble_report` (full) |
+| `driving` | "how is the drive to Whistler" | DriveBC + ETA | `assemble_driving_report` |
+| `avalanche` | "avy forecast for Brandywine" | avalanche + weather (alpine context) | `assemble_avalanche_report(weather=...)` |
+| `weather` | "weather at Garibaldi Lake" | Open-Meteo 3-day | `assemble_3day_report` (with elevation + freezing level) |
+| `wildfire` | "any fires near Garibaldi" | BC Wildfire | `assemble_wildfire_report` |
+| `wildlife` | "any bears near Alice Lake" | WildSafeBC + Squamish Chief | `assemble_wildlife_report` |
+
+Confirmation card hides "From:" and "Change start" for non-driving focuses. Post-report keyboard shows only "Scout new" for focused reports.
+
+### 5.10 3-day weather report
+
+Available via the "📅 3-day forecast" inline button after a full scout, or via focused query (`focus=weather`).
+
+Shows:
+- Destination name + terrain elevation (from Open-Meteo response root)
+- Per-day: condition, temp max/min, precipitation, snowfall (if ≥0.5cm), mean daily freezing level
+- Footer: timestamp + Windy.com deep link (lat/lon)
+
+### 5.11 Error states
 
 | Situation | Behaviour |
 |---|---|

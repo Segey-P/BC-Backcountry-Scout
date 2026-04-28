@@ -12,7 +12,10 @@
 |---|---|---|
 | Phase 2 priority | Proactive alerts | Implemented: /watch + /unwatch; 30-min background job via PTB JobQueue |
 | Geocoding primary | Google Maps API | Replaces Nominatim; better BC backcountry coverage |
-| Geocoding fallback | 39-feature fuzzy list | Last resort; GNWS stub to be replaced in next session |
+| Geocoding fallback | 43-feature fuzzy list | Last resort; GNWS stub to be replaced in next session |
+| Geocoder quality gate | 0.55 similarity threshold | Filters wrong Google results before fuzzy merge |
+| Focused queries | focus field on Intent | NLP sets focus; only relevant fetchers run; focused assembler used |
+| 3-day weather | elevation + freezing level + Windy link | Available via button or "weather at X" NLP query |
 | Alpine threshold | 1200m | Open-Meteo terrain elevation, auto-detected |
 | Report format | HTML (was MarkdownV2) | Robust escaping for real API data |
 | Trip flow | Confirmation step before fetch | Inline buttons: Scout it / Change start |
