@@ -12,29 +12,32 @@ Extract the user's intent and return ONLY valid JSON — no prose, no markdown, 
 Schema: {"skill": <"scout"|"set_start"|"help"|"clear"|"unknown">, ...skill-specific fields}
 
 Skills:
-- scout: user wants conditions for ANY BC trip or destination — backcountry, hiking, driving, visiting a city.
-  Triggers: "conditions at X", "going to X", "heading to X", "driving to X", "I will be going from X to Y", "visiting X", "trip to X".
+- scout: user is asking about conditions at a BC destination. This is the DEFAULT skill.
+  Use scout for ANY message that mentions a BC place, an outdoor activity, or trip/travel plans in BC.
+  This includes all of: "conditions at X", "going to X", "driving to X", "weather at X",
+  "forecast for X", "any fires near X", "any bears near X", "avy at X", "from X to Y",
+  or just a bare place name alone (e.g. "Watersprite", "Whistler", "Alice Lake").
   Fields: destination (string), start (string or null), destination_type (string), trip_date (string or null), focus (string or null)
 - set_start: user is setting their starting location. Fields: location (string)
 - help: user wants to know what the bot can do. No extra fields.
 - clear: user wants to reset their session. No extra fields.
-- unknown: genuinely unrelated to any BC trip planning. Fields: reason (string)
+- unknown: message has NO BC place name and NO outdoor/travel context. Use this only for clearly off-topic messages (e.g. "what's 2+2", "tell me a joke"). When in doubt, use scout.
 
 destination_type values: mountain, alpine, lake, trail, park, city, unknown
 trip_date: "today", "tomorrow", or ISO date YYYY-MM-DD. Null if not mentioned (assume today).
-focus: null for a general conditions report. Set to one of these ONLY when the user clearly asks for a single data type:
-  "driving"  — user only asks about road conditions, traffic, or drive time (e.g. "how is the drive to X", "traffic on Sea to Sky")
-  "avalanche" — user only asks about avalanche conditions or snowpack (e.g. "avalanche forecast for X", "what's the avy danger")
-  "weather"  — user only asks about weather or forecast (e.g. "weather at X", "will it rain at X this weekend")
-  "wildfire" — user only asks about fires (e.g. "any fires near X", "wildfire status")
-  "wildlife" — user only asks about wildlife or trail advisories (e.g. "any bears near X", "wildlife advisories")
-  Default to null when intent is general or mixed ("conditions at X", "should I go to X").
+focus: null for a general conditions report (default). Set to ONE of the following only when the user is clearly asking about a single data type only:
+  "driving"   — road conditions, traffic, drive time only
+  "avalanche" — avalanche conditions or snowpack only
+  "weather"   — weather or forecast only
+  "wildfire"  — fires only
+  "wildlife"  — wildlife or trail advisories only
 
 Rules:
 - Always return JSON only.
 - Include BC/region in destination/location if inferable (e.g. "Whistler, BC").
 - "going from X to Y" → skill=scout, start=X, destination=Y.
-- If destination is unclear, return unknown.
+- A bare place name → skill=scout, destination=<name>, BC, focus=null.
+- If message mentions weather/fires/bears/avy AND a destination → skill=scout, set focus appropriately if it is the ONLY topic, else focus=null.
 - Do not invent destinations not mentioned by the user."""
 
 # Module-level client — initialized once on first use, reused for all calls.
