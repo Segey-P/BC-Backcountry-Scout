@@ -76,6 +76,10 @@ _KNOWN_FEATURES: list[GeoResult] = [
     GeoResult("Merritt, BC", 50.1133, -120.7850, "fuzzy"),
     GeoResult("Lillooet, BC", 50.6883, -121.9358, "fuzzy"),
     GeoResult("100 Mile House, BC", 51.6444, -121.2958, "fuzzy"),
+    GeoResult("Watersprite Lake", 50.0767, -123.0900, "fuzzy"),
+    GeoResult("Brandywine Meadows", 50.0750, -123.1100, "fuzzy"),
+    GeoResult("Sea to Sky Gondola", 49.6800, -123.1550, "fuzzy"),
+    GeoResult("Squamish Estuary", 49.7100, -123.1700, "fuzzy"),
 ]
 
 
@@ -194,7 +198,12 @@ def geocode_destination(
     scored = sorted(_KNOWN_FEATURES, key=lambda r: -_token_match_score(query, r.name))
     fuzzy = [r for r in scored[:3] if _token_match_score(query, r.name) >= _FUZZY_TOKEN_THRESHOLD]
 
-    # Merge Google results (even weak ones) with fuzzy, deduplicate, re-sort
-    combined = _deduplicate(results + fuzzy)
+    # Only carry Google results into the merge if they have a plausible name match.
+    # This prevents a completely wrong Google result (e.g. "Cultus Lake" for "Watersprite Lake")
+    # from being returned ahead of a correct fuzzy match.
+    _MIN_MERGE_SIMILARITY = 0.55
+    results_for_merge = [r for r in results if _similarity(query, r.name) >= _MIN_MERGE_SIMILARITY]
+
+    combined = _deduplicate(results_for_merge + fuzzy)
     combined.sort(key=lambda r: _haversine_km((r.lat, r.lon), bias_point))
     return combined[:3]
