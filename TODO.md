@@ -1,12 +1,9 @@
 # BC Backcountry Scout — TODO
 
-## Priority 1 — Phase 1 Completion
-
-- [ ] GNWS (BC Geographic Names Web Service) real integration — replace 39-feature fuzzy fallback
-- [ ] Add "Full scout" button on focused reports to upgrade from driving/transit to full report
-
 ## Completed — Phase 1
 
+- [x] GNWS (BC Geographic Names Web Service) real integration — replace 39-feature fuzzy fallback
+- [x] Add "Full scout" button on focused reports to upgrade from driving/transit to full report
 - [x] Proactive alerts (/watch + /unwatch; 30-min background job)
 - [x] Google Maps API geocoding
 - [x] Report format (HTML with proper escaping)

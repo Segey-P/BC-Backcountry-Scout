@@ -135,7 +135,8 @@ def _build_confirmation_keyboard(show_change_start: bool = True) -> InlineKeyboa
 def _build_post_report_keyboard(is_alpine: bool, focus: str | None = None) -> InlineKeyboardMarkup:
     new_btn = InlineKeyboardButton("🔄 Scout new destination", callback_data="ext_new")
     if focus:
-        return InlineKeyboardMarkup([[new_btn]])
+        full_btn = InlineKeyboardButton("🌟 Full scout", callback_data="ext_full")
+        return InlineKeyboardMarkup([[full_btn], [new_btn]])
     row1 = [InlineKeyboardButton("📅 3-day forecast", callback_data="ext_3day")]
     if is_alpine:
         row1.append(InlineKeyboardButton("🏔️ Avalanche", callback_data="ext_avalanche"))
@@ -356,6 +357,38 @@ class BotHandler:
 
         lat, lon = last_dest["lat"], last_dest["lon"]
         name = last_dest["name"]
+
+        if query.data == "ext_full":
+            await query.edit_message_text(
+                "Upgrading to full scout…",
+                reply_markup=InlineKeyboardMarkup([]),
+            )
+            start = session.get("starting_point")
+            start_point = (start["lat"], start["lon"]) if start else _SQUAMISH_DEFAULT
+            start_name = start["name"] if start else "Squamish, BC"
+            dest_point = (lat, lon)
+            corridor = build_route_corridor(start_point, dest_point)
+            
+            data = await run_all_fetchers(corridor, start_point, dest_point, name, focus=None)
+            is_alpine = data["weather"].is_alpine if data.get("weather") else False
+            
+            report = assemble_report(
+                destination_name=name,
+                start_name=start_name,
+                road_events=data["road_events"],
+                weather=data["weather"],
+                fires=data["fires"],
+                advisories=data["advisories"],
+                eta=data.get("eta"),
+                avalanche=data.get("avalanche"),
+            )
+            
+            await query.edit_message_text(
+                report,
+                parse_mode="HTML",
+                reply_markup=_build_post_report_keyboard(is_alpine, focus=None),
+            )
+            return
 
         if query.data == "ext_3day":
             status = await query.message.reply_text("Fetching 3-day forecast…")
