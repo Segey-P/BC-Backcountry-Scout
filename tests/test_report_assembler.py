@@ -296,12 +296,18 @@ def test_assemble_report_avalanche_inline_alpine():
         region_id="sea-to-sky", region_name="Sea to Sky",
         days=[_make_day("Sun Apr 26", 3, 2, 1)],
     )
-    report = assemble_report(
-        destination_name="Elfin Lakes",
-        start_name="Squamish",
-        road_events=[], weather=weather, fires=[], advisories=[],
-        avalanche=avx,
-    )
+    # Mock today to be in January so _is_avalanche_season returns True
+    from datetime import date
+    from unittest.mock import patch
+    with patch("report_assembler.date") as mock_date:
+        mock_date.today.return_value = date(2026, 1, 1)
+        mock_date.side_effect = date # allow date() calls
+        report = assemble_report(
+            destination_name="Elfin Lakes",
+            start_name="Squamish",
+            road_events=[], weather=weather, fires=[], advisories=[],
+            avalanche=avx,
+        )
     assert "Avalanche" in report
     assert "Considerable" in report
     assert "Moderate" in report

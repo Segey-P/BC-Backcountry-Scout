@@ -13,10 +13,10 @@ _WILDFIRE_URL = (
     "&f=geojson"
 )
 _FIREBANS_URL = (
-    "https://services6.arcgis.com/ubm4tcTYICKBpist/arcgis/rest/services"
-    "/BCWS_FireRestrictions_and_Bans_PublicView/FeatureServer/0/query"
-    "?where=1%3D1&outFields=ACCESS_PROHIBITION_DESCRIPTION,FIRE_CENTRE_NAME"
-    "&f=geojson"
+    "https://openmaps.gov.bc.ca/geo/pub/wfs"
+    "?service=WFS&version=2.0.0&request=GetFeature"
+    "&typeName=pub:WHSE_LAND_AND_NATURAL_RESOURCE.PROT_BANS_AND_PROHIBITIONS_SP"
+    "&outputFormat=json&srsName=EPSG:4326"
 )
 _TIMEOUT = 3.0
 _NEARBY_KM = 25
@@ -29,6 +29,15 @@ class FireIncident:
     size_hectares: float | None
     geometry: dict  # GeoJSON
     distance_to_destination_km: float
+
+
+@dataclass
+class FireBan:
+    description: str
+    fire_centre: str
+    bulletin_url: str
+    category: str
+    type: str
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -106,8 +115,8 @@ def fetch_wildfire(
     return results
 
 
-def fetch_fire_bans(destination: tuple[float, float]) -> list[str]:
-    """Return active fire restriction/ban descriptions near the destination."""
+def fetch_fire_bans(destination: tuple[float, float]) -> list[FireBan]:
+    """Return active fire restriction/ban details near the destination."""
     try:
         response = httpx.get(_FIREBANS_URL, timeout=_TIMEOUT)
         response.raise_for_status()
@@ -123,9 +132,13 @@ def fetch_fire_bans(destination: tuple[float, float]) -> list[str]:
             continue
         try:
             if shape(geom).contains(Point(destination[1], destination[0])):
-                desc = props.get("ACCESS_PROHIBITION_DESCRIPTION") or ""
-                if desc:
-                    bans.append(desc)
+                bans.append(FireBan(
+                    description=props.get("ACCESS_PROHIBITION_DESCRIPTION") or "Unknown prohibition",
+                    fire_centre=props.get("FIRE_CENTRE_NAME") or "Unknown Centre",
+                    bulletin_url=props.get("BULLETIN_URL") or "https://bcwildfire.ca",
+                    category=props.get("CATEGORY") or "N/A",
+                    type=props.get("TYPE") or "Restriction",
+                ))
         except Exception:
             continue
     return bans

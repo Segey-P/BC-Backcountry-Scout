@@ -8,7 +8,7 @@ from fetchers.avalanche import AvalancheReport, fetch_avalanche
 from fetchers.drivebc import RoadEvent, fetch_drivebc_events
 from fetchers.eta import ETAResult, fetch_eta
 from fetchers.weather import DayForecast, WeatherReport, fetch_weather, fetch_weather_3day
-from fetchers.wildfire import FireIncident, fetch_wildfire
+from fetchers.wildfire import FireBan, FireIncident, fetch_fire_bans, fetch_wildfire
 from fetchers.wildlife_news import Advisory, fetch_wildlife_news
 
 _PACIFIC = ZoneInfo("America/Vancouver")
@@ -18,6 +18,12 @@ def _is_avalanche_season() -> bool:
     """Avalanche forecasts are only issued Oct 1 – Apr 30."""
     m = date.today().month
     return m <= 4 or m >= 10
+
+
+def _is_fire_ban_season() -> bool:
+    """Fire bans/restrictions are typically relevant May 1 – Oct 31."""
+    m = date.today().month
+    return 5 <= m <= 10
 
 
 def _is_wildlife_season() -> bool:
@@ -54,6 +60,7 @@ def assemble_report(
     advisories: list[Advisory],
     eta: Optional[ETAResult] = None,
     avalanche: Optional[AvalancheReport] = None,
+    bans: list[FireBan] = None,
 ) -> str:
     """Assemble a single Telegram HTML message from fetched data."""
 
@@ -78,6 +85,14 @@ def assemble_report(
             )
     else:
         lines.append("✅ No active wildfires nearby")
+
+    if _is_fire_ban_season():
+        if bans:
+            # We just show a summary in the main report
+            for ban in bans:
+                lines.append(f"🚫 <b>Fire Ban:</b> {_e(ban.fire_centre)} ({_e(ban.category)})")
+        else:
+            lines.append("✅ No fire bans in effect")
 
     if _is_wildlife_season():
         if advisories:
@@ -286,6 +301,30 @@ def assemble_wildfire_report(destination_name: str, fires: list[FireIncident]) -
     return "\n".join(lines)
 
 
+def assemble_fire_ban_report(destination_name: str, bans: list[FireBan]) -> str:
+    lines = [f"🚫 <b>Fire Bans & Restrictions — {_e(destination_name)}</b>", ""]
+
+    if bans:
+        for ban in bans:
+            lines.append(f"📍 <b>{_e(ban.fire_centre)} Fire Centre</b>")
+            lines.append(f"Type: {_e(ban.type)}")
+            lines.append(f"Prohibited: {_e(ban.description)}")
+            if ban.bulletin_url:
+                lines.append(f'🔗 <a href="{ban.bulletin_url}">Official Bulletin</a>')
+            lines.append("")
+    else:
+        lines.append("✅ No active fire bans or prohibitions for this location.")
+        lines.append("")
+        lines.append("Note: Municipalities may have their own bylaws. Always check local signs.")
+
+    now = datetime.now(tz=_PACIFIC).strftime("%H:%M %Z")
+    lines.append(
+        f"<i>Source: BC Wildfire Service · {now} · "
+        '<a href="https://www2.gov.bc.ca/gov/content/safety/wildfire-status/fire-bans-and-prohibitions">bcwildfire.ca</a></i>'
+    )
+    return "\n".join(lines)
+
+
 def assemble_wildlife_report(destination_name: str, advisories: list[Advisory]) -> str:
     lines = [f"🐻 <b>Wildlife Advisories — {_e(destination_name)}</b>", ""]
 
@@ -318,6 +357,7 @@ async def run_all_fetchers(
         "advisories": [],
         "eta": None,
         "avalanche": None,
+        "bans": [],
     }
 
     async def _run(coro):
@@ -326,7 +366,7 @@ async def run_all_fetchers(
         except (asyncio.TimeoutError, Exception):
             return None
 
-    list_keys = {"road_events", "fires", "advisories", "weather_3day"}
+    list_keys = {"road_events", "fires", "advisories", "weather_3day", "bans"}
 
     task_map = {}
     if focus in (None, "driving"):
@@ -340,6 +380,8 @@ async def run_all_fetchers(
         task_map["weather_3day"] = asyncio.to_thread(fetch_weather_3day, destination_point[0], destination_point[1])
     if focus in (None, "wildfire"):
         task_map["fires"] = asyncio.to_thread(fetch_wildfire, corridor_polygon, destination_point)
+    if focus in (None, "fireban") and _is_fire_ban_season():
+        task_map["bans"] = asyncio.to_thread(fetch_fire_bans, destination_point)
     if focus in (None, "wildlife") and _is_wildlife_season():
         task_map["advisories"] = asyncio.to_thread(fetch_wildlife_news, corridor_polygon, destination_name)
 

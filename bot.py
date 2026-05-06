@@ -22,6 +22,7 @@ from report_assembler import (
     assemble_3day_report,
     assemble_avalanche_report,
     assemble_driving_report,
+    assemble_fire_ban_report,
     assemble_report,
     assemble_wildfire_report,
     assemble_wildlife_report,
@@ -289,10 +290,12 @@ class BotHandler:
                 report = assemble_3day_report(pending["dest_name"], data["weather_3day"], lat=dest_point[0], lon=dest_point[1])
             elif focus == "wildfire":
                 report = assemble_wildfire_report(pending["dest_name"], data["fires"])
+            elif focus == "fireban":
+                report = assemble_fire_ban_report(pending["dest_name"], data["bans"])
             elif focus == "wildlife":
                 report = assemble_wildlife_report(pending["dest_name"], data["advisories"])
             else:
-                is_alpine = data["weather"].is_alpine if data["weather"] else False
+                is_alpine = data["weather"].is_alpine if data.get("weather") else False
                 report = assemble_report(
                     destination_name=pending["dest_name"],
                     start_name=pending["start_name"],
@@ -302,6 +305,7 @@ class BotHandler:
                     advisories=data["advisories"],
                     eta=data.get("eta"),
                     avalanche=data.get("avalanche"),
+                    bans=data.get("bans"),
                 )
 
             is_alpine = data["weather"].is_alpine if data.get("weather") else False

@@ -15,7 +15,8 @@ Skills:
 - scout: user is asking about conditions at a BC destination. This is the DEFAULT skill.
   Use scout for ANY message that mentions a BC place, an outdoor activity, or trip/travel plans in BC.
   This includes all of: "conditions at X", "going to X", "driving to X", "weather at X",
-  "forecast for X", "any fires near X", "any bears near X", "avy at X", "from X to Y",
+  "forecast for X", "any fires near X", "any fire bans at X", "can I have a campfire at X",
+  "any bears near X", "avy at X", "from X to Y",
   or just a bare place name alone (e.g. "Watersprite", "Whistler", "Alice Lake").
   Fields: destination (string), start (string or null), destination_type (string), trip_date (string or null), focus (string or null)
 - set_start: user is setting their starting location. Fields: location (string)
@@ -30,6 +31,7 @@ focus: null for a general conditions report (default). Set to ONE of the followi
   "avalanche" — avalanche conditions or snowpack only
   "weather"   — weather or forecast only
   "wildfire"  — fires only
+  "fireban"   — fire bans, campfire restrictions only
   "wildlife"  — wildlife or trail advisories only
 
 Rules:
@@ -106,7 +108,7 @@ def parse_intent(text: str) -> Intent:
         skill = "unknown"
 
     raw_focus = data.get("focus")
-    valid_focuses = ("driving", "avalanche", "weather", "wildfire", "wildlife")
+    valid_focuses = ("driving", "avalanche", "weather", "wildfire", "fireban", "wildlife")
     focus = raw_focus if raw_focus in valid_focuses else None
 
     return Intent(
