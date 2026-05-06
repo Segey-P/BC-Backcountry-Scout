@@ -15,6 +15,7 @@ _CACHE_TTL = 900  # 15 minutes
 _cache_state = {
     "weather": {"last_result": None, "last_time": 0, "last_coords": None},
     "weather_3day": {"last_result": None, "last_time": 0, "last_coords": None},
+    "solar": {"last_result": None, "last_time": 0, "last_coords": None},
 }
 
 _WMO_CODES = {
@@ -47,6 +48,27 @@ class WeatherReport:
     twilight_end: str | None = None
 
 
+def _fetch_solar_times(lat: float, lon: float) -> tuple[str | None, str | None, str | None]:
+    """Fetch sunrise, sunset, civil_twilight_end. Returns (sunrise, sunset, twilight_end)."""
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "daily": "sunrise,sunset,civil_twilight_end",
+        "timezone": "auto",
+    }
+    try:
+        response = httpx.get(_OPEN_METEO_URL, params=params, timeout=_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+        daily = data.get("daily") or {}
+        sunrise = (daily.get("sunrise") or [None])[0]
+        sunset = (daily.get("sunset") or [None])[0]
+        twilight_end = (daily.get("civil_twilight_end") or [None])[0]
+        return sunrise, sunset, twilight_end
+    except Exception:
+        return None, None, None
+
+
 def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
     params = {
         "latitude": lat,
@@ -55,7 +77,6 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
             "temperature_2m,windspeed_10m,precipitation,freezinglevel_height,"
             "snowfall,windgusts_10m"
         ),
-        "daily": "sunrise,sunset,civil_twilight_end",
         "current_weather": "true",
         "forecast_days": 2,
         "timezone": "auto",
@@ -72,7 +93,6 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
 
     cw = data.get("current_weather") or {}
     hourly = data.get("hourly") or {}
-    daily = data.get("daily") or {}
     elevation = data.get("elevation")
 
     times = hourly.get("time") or []
@@ -83,10 +103,7 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
     snowfalls = hourly.get("snowfall") or []
     gusts = hourly.get("windgusts_10m") or []
 
-    # Extract today's sunrise/sunset times from daily data
-    sunrise = (daily.get("sunrise") or [None])[0]
-    sunset = (daily.get("sunset") or [None])[0]
-    twilight_end = (daily.get("civil_twilight_end") or [None])[0]
+    sunrise, sunset, twilight_end = _fetch_solar_times(lat, lon)
 
     forecast_24h = [
         {"time": t, "temp": te, "wind": wi, "precip": pr, "freezing_level": fr}
@@ -297,3 +314,6 @@ def clear_cache() -> None:
     _cache_state["weather_3day"]["last_result"] = None
     _cache_state["weather_3day"]["last_coords"] = None
     _cache_state["weather_3day"]["last_time"] = 0
+    _cache_state["solar"]["last_result"] = None
+    _cache_state["solar"]["last_coords"] = None
+    _cache_state["solar"]["last_time"] = 0
