@@ -127,8 +127,7 @@ def assemble_report(
                 lines.append("⚠️ Freezing level near or below terrain")
         if weather.sunset:
             try:
-                from datetime import datetime as dt_cls
-                sunset_time = dt_cls.fromisoformat(weather.sunset.replace('Z', '+00:00')).astimezone(_PACIFIC)
+                sunset_time = datetime.fromisoformat(weather.sunset).time()
                 lines.append(f"🌅 Sunset: {sunset_time.strftime('%H:%M')}")
             except (ValueError, AttributeError, TypeError):
                 pass
