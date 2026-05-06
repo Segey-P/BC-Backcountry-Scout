@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import httpx
 
 _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-_TIMEOUT = 3.0
+_TIMEOUT = 5.0
 _ALPINE_ELEVATION_M = 1200
 _CACHE_TTL = 900  # 15 minutes
 
