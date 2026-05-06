@@ -48,7 +48,7 @@ class WeatherReport:
     twilight_end: str | None = None
 
 
-def _fetch_solar_times(lat: float, lon: float) -> tuple[str | None, str | None, str | None]:
+def _fetch_solar_times_uncached(lat: float, lon: float) -> tuple[str | None, str | None, str | None]:
     """Fetch sunrise, sunset, civil_twilight_end. Returns (sunrise, sunset, twilight_end)."""
     params = {
         "latitude": lat,
@@ -67,6 +67,25 @@ def _fetch_solar_times(lat: float, lon: float) -> tuple[str | None, str | None, 
         return sunrise, sunset, twilight_end
     except Exception:
         return None, None, None
+
+
+def _fetch_solar_times(lat: float, lon: float) -> tuple[str | None, str | None, str | None]:
+    """Cached solar times fetch."""
+    now = time.monotonic()
+    coords = (lat, lon)
+    cache = _cache_state["solar"]
+    if (
+        cache["last_result"] is not None
+        and cache["last_coords"] == coords
+        and (now - cache["last_time"]) < _CACHE_TTL
+    ):
+        return cache["last_result"]
+
+    result = _fetch_solar_times_uncached(lat, lon)
+    cache["last_result"] = result
+    cache["last_coords"] = coords
+    cache["last_time"] = now
+    return result
 
 
 def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
