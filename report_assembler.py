@@ -125,6 +125,14 @@ def assemble_report(
                 and weather.freezing_level < weather.elevation + 200
             ):
                 lines.append("⚠️ Freezing level near or below terrain")
+        if weather.twilight_end:
+            try:
+                from datetime import datetime as dt_cls
+                twilight_time = dt_cls.fromisoformat(weather.twilight_end.replace('Z', '+00:00')).astimezone(_PACIFIC)
+                lines.append(f"🌅 Last light: {twilight_time.strftime('%H:%M')}")
+            except (ValueError, AttributeError):
+                pass
+        if weather.is_alpine:
             if _is_avalanche_season() and avalanche and avalanche.days:
                 today = avalanche.days[0]
                 if today.alpine.value == 0 and today.treeline.value == 0:

@@ -42,6 +42,9 @@ class WeatherReport:
     snowfall_24h: float | None = None
     wind_gusts: float | None = None
     is_alpine: bool = False
+    sunrise: str | None = None
+    sunset: str | None = None
+    twilight_end: str | None = None
 
 
 def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
@@ -52,6 +55,7 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
             "temperature_2m,windspeed_10m,precipitation,freezinglevel_height,"
             "snowfall,windgusts_10m"
         ),
+        "daily": "sunrise,sunset,civil_twilight_end",
         "current_weather": "true",
         "forecast_days": 2,
         "timezone": "auto",
@@ -68,6 +72,7 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
 
     cw = data.get("current_weather") or {}
     hourly = data.get("hourly") or {}
+    daily = data.get("daily") or {}
     elevation = data.get("elevation")
 
     times = hourly.get("time") or []
@@ -77,6 +82,11 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
     freezing = hourly.get("freezinglevel_height") or []
     snowfalls = hourly.get("snowfall") or []
     gusts = hourly.get("windgusts_10m") or []
+
+    # Extract today's sunrise/sunset times from daily data
+    sunrise = (daily.get("sunrise") or [None])[0]
+    sunset = (daily.get("sunset") or [None])[0]
+    twilight_end = (daily.get("civil_twilight_end") or [None])[0]
 
     forecast_24h = [
         {"time": t, "temp": te, "wind": wi, "precip": pr, "freezing_level": fr}
@@ -111,6 +121,9 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
         snowfall_24h=fresh_snow,
         wind_gusts=gusts[0] if gusts else None,
         is_alpine=(elevation or 0) > _ALPINE_ELEVATION_M,
+        sunrise=sunrise,
+        sunset=sunset,
+        twilight_end=twilight_end,
     )
 
 
