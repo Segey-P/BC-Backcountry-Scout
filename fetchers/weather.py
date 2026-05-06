@@ -45,15 +45,14 @@ class WeatherReport:
     is_alpine: bool = False
     sunrise: str | None = None
     sunset: str | None = None
-    twilight_end: str | None = None
 
 
-def _fetch_solar_times_uncached(lat: float, lon: float) -> tuple[str | None, str | None, str | None]:
-    """Fetch sunrise, sunset, civil_twilight_end. Returns (sunrise, sunset, twilight_end)."""
+def _fetch_solar_times_uncached(lat: float, lon: float) -> tuple[str | None, str | None]:
+    """Fetch sunrise, sunset. Returns (sunrise, sunset)."""
     params = {
         "latitude": lat,
         "longitude": lon,
-        "daily": "sunrise,sunset,civil_twilight_end",
+        "daily": "sunrise,sunset",
         "timezone": "auto",
     }
     try:
@@ -63,13 +62,12 @@ def _fetch_solar_times_uncached(lat: float, lon: float) -> tuple[str | None, str
         daily = data.get("daily") or {}
         sunrise = (daily.get("sunrise") or [None])[0]
         sunset = (daily.get("sunset") or [None])[0]
-        twilight_end = (daily.get("civil_twilight_end") or [None])[0]
-        return sunrise, sunset, twilight_end
+        return sunrise, sunset
     except Exception:
-        return None, None, None
+        return None, None
 
 
-def _fetch_solar_times(lat: float, lon: float) -> tuple[str | None, str | None, str | None]:
+def _fetch_solar_times(lat: float, lon: float) -> tuple[str | None, str | None]:
     """Cached solar times fetch."""
     now = time.monotonic()
     coords = (lat, lon)
@@ -122,7 +120,7 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
     snowfalls = hourly.get("snowfall") or []
     gusts = hourly.get("windgusts_10m") or []
 
-    sunrise, sunset, twilight_end = _fetch_solar_times(lat, lon)
+    sunrise, sunset = _fetch_solar_times(lat, lon)
 
     forecast_24h = [
         {"time": t, "temp": te, "wind": wi, "precip": pr, "freezing_level": fr}
@@ -159,7 +157,6 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
         is_alpine=(elevation or 0) > _ALPINE_ELEVATION_M,
         sunrise=sunrise,
         sunset=sunset,
-        twilight_end=twilight_end,
     )
 
 
