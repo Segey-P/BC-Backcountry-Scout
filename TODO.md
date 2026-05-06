@@ -2,10 +2,6 @@
 
 ## v1.5 Advanced Features Implementation
 
-### Solar & Twilight Enhancements
-- [ ] Fetch `sunrise`, `sunset`, `civil_twilight_end` from Open-Meteo.
-- [ ] Add "Last Light" warning to weather block.
-
 ### 24h Max Wind Gusts
 - [ ] Fetch `wind_gusts_10m_max` from Open-Meteo.
 - [ ] Update weather block to display max gusts.
