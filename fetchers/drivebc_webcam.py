@@ -1,28 +1,20 @@
 from __future__ import annotations
 
+import json
 import logging
 import math
 import time
 from dataclasses import dataclass
-from urllib.parse import quote
-
-import httpx
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# DataBC GeoJSON endpoint for all BC Highway webcams
-_WEBCAM_URL = (
-    "https://openmaps.gov.bc.ca/geo/pub/wfs"
-    "?service=WFS&version=2.0.0&request=GetFeature"
-    "&typeName=pub:WHSE_IMAGERY_AND_BASE_MAPS.HWAY_WEBCAM_IMAGERY_SP"
-    "&outputFormat=json&srsName=EPSG:4326"
-)
-# Fallback: DriveBC open data CSV/JSON (known public endpoint)
-_WEBCAM_FALLBACK_URL = "https://api.open511.gov.bc.ca/webcams"
+# Local camera data populated by scripts/fetch_webcams.py via GitHub Actions.
+# Oracle Cloud IPs are blocked by all *.gov.bc.ca and *.drivebc.ca endpoints,
+# so we cannot fetch live from the bot server.
+_DATA_FILE = Path(__file__).parent.parent / "data" / "webcams.json"
 
-_TIMEOUT = 10.0
-_CACHE_TTL = 86400  # 24 hours (camera locations don't change often)
-
+_CACHE_TTL = 3600  # reload from disk at most once per hour
 _cache: dict = {}
 
 
@@ -47,87 +39,26 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return r * 2 * math.asin(math.sqrt(a))
 
 
-def _parse_webcam_wfs(features: list, dest_lat: float, dest_lon: float) -> list[Webcam]:
-    """Parse DataBC WFS GeoJSON features into Webcam objects."""
-    cameras = []
-    for feature in features:
-        props = feature.get("properties") or {}
-        geom = feature.get("geometry") or {}
-        coords = geom.get("coordinates")
-        if not coords or len(coords) < 2:
-            continue
-        lon, lat = float(coords[0]), float(coords[1])
-
-        cam_id = props.get("CAM_ID") or props.get("CAM_NAME") or ""
-        name = props.get("CAM_NAME") or props.get("HIGHWAY_DESCRIPTION") or "BC Highway Webcam"
-        highway = props.get("HIGHWAY_DESCRIPTION") or ""
-        if highway and highway not in name:
-            name = f"{name} ({highway})"
-
-        # DriveBC image URLs follow a known pattern
-        cam_id_safe = quote(cam_id, safe="") if cam_id else ""
-        image_url = props.get("IMAGE_URL") or (
-            f"https://images.drivebc.ca/bchighwaycam/pub/cameras/{cam_id_safe}/latest/image.jpg"
-            if cam_id_safe else ""
-        )
-        page_url = props.get("CAM_URL") or f"https://www.drivebc.ca/mobile/pub/webcam/id/{cam_id_safe}.html"
-
-        dist = _haversine_km(lat, lon, dest_lat, dest_lon)
-        cameras.append(Webcam(
-            name=name,
-            lat=lat,
-            lon=lon,
-            image_url=image_url,
-            page_url=page_url,
-            distance_km=dist,
-        ))
-    return cameras
-
-
-def _fetch_webcams_raw() -> list[dict]:
-    """Fetch raw webcam features from DataBC WFS (cached 24h)."""
+def _load_cameras() -> list[dict]:
+    """Load camera list from local data file, cached in memory for 1 hour."""
     now = time.monotonic()
-    cached = _cache.get("webcams")
+    cached = _cache.get("cameras")
     if cached and (now - cached["ts"]) < _CACHE_TTL:
         return cached["data"]
 
-    try:
-        response = httpx.get(_WEBCAM_URL, timeout=_TIMEOUT)
-        response.raise_for_status()
-        features = response.json().get("features") or []
-        if features:
-            _cache["webcams"] = {"data": features, "ts": now}
-            return features
-    except Exception as exc:
-        logger.warning("drivebc_webcam: WFS fetch failed: %s", exc)
+    if not _DATA_FILE.exists():
+        logger.warning("drivebc_webcam: %s not found — run scripts/fetch_webcams.py", _DATA_FILE)
+        return []
 
-    # Fallback: Open511 webcams endpoint
     try:
-        response = httpx.get(_WEBCAM_FALLBACK_URL, timeout=_TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
-        # Open511 webcams have a different structure
-        cameras = data.get("webcams") or []
-        features = []
-        for cam in cameras:
-            location = cam.get("location") or {}
-            coords = location.get("coordinates")
-            if not coords:
-                continue
-            features.append({
-                "geometry": {"type": "Point", "coordinates": coords},
-                "properties": {
-                    "CAM_NAME": cam.get("name", ""),
-                    "IMAGE_URL": cam.get("url", ""),
-                    "CAM_URL": cam.get("url", ""),
-                    "CAM_ID": cam.get("id", ""),
-                }
-            })
-        if features:
-            _cache["webcams"] = {"data": features, "ts": now}
-        return features
+        cameras = json.loads(_DATA_FILE.read_text())
+        if not isinstance(cameras, list):
+            raise ValueError("expected a JSON array")
+        _cache["cameras"] = {"data": cameras, "ts": now}
+        logger.info("drivebc_webcam: loaded %d cameras from %s", len(cameras), _DATA_FILE)
+        return cameras
     except Exception as exc:
-        logger.warning("drivebc_webcam: fallback fetch failed: %s", exc)
+        logger.warning("drivebc_webcam: failed to read %s: %s", _DATA_FILE, exc)
         return []
 
 
@@ -137,21 +68,31 @@ def fetch_nearest_webcam(
 ) -> Webcam | None:
     """Return the nearest DriveBC webcam to the destination within max_distance_km."""
     dest_lat, dest_lon = destination
-    features = _fetch_webcams_raw()
-    if not features:
-        return None
-
-    cameras = _parse_webcam_wfs(features, dest_lat, dest_lon)
+    cameras = _load_cameras()
     if not cameras:
         return None
 
-    cameras.sort(key=lambda c: c.distance_km)
-    nearest = cameras[0]
+    best: Webcam | None = None
+    for cam in cameras:
+        try:
+            lat = float(cam["lat"])
+            lon = float(cam["lon"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        dist = _haversine_km(lat, lon, dest_lat, dest_lon)
+        if dist > max_distance_km:
+            continue
+        if best is None or dist < best.distance_km:
+            best = Webcam(
+                name=cam.get("name", "BC Highway Webcam"),
+                lat=lat,
+                lon=lon,
+                image_url=cam.get("image_url", ""),
+                page_url=cam.get("page_url", ""),
+                distance_km=dist,
+            )
 
-    if nearest.distance_km > max_distance_km:
-        return None
-
-    return nearest
+    return best
 
 
 def clear_cache() -> None:
