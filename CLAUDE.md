@@ -19,6 +19,12 @@
 - **Technical level:** Not a developer — use plain language when explaining options.
 - **Workflow:** Cloud-first via Claude Code web. Minimize local machine dependency.
 
+## Deploy Command
+
+```bash
+ssh bcscout "cd ~/bc-backcountry-scout && git pull && sudo systemctl restart bcscout"
+```
+
 ## Before Making Changes
 
 1. Read `TODO.md` — current next actions and priorities.
