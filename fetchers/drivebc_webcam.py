@@ -4,6 +4,7 @@ import logging
 import math
 import time
 from dataclasses import dataclass
+from urllib.parse import quote
 
 import httpx
 
@@ -64,11 +65,12 @@ def _parse_webcam_wfs(features: list, dest_lat: float, dest_lon: float) -> list[
             name = f"{name} ({highway})"
 
         # DriveBC image URLs follow a known pattern
+        cam_id_safe = quote(cam_id, safe="") if cam_id else ""
         image_url = props.get("IMAGE_URL") or (
-            f"https://images.drivebc.ca/bchighwaycam/pub/cameras/{cam_id}/latest/image.jpg"
-            if cam_id else ""
+            f"https://images.drivebc.ca/bchighwaycam/pub/cameras/{cam_id_safe}/latest/image.jpg"
+            if cam_id_safe else ""
         )
-        page_url = props.get("CAM_URL") or f"https://www.drivebc.ca/mobile/pub/webcam/id/{cam_id}.html"
+        page_url = props.get("CAM_URL") or f"https://www.drivebc.ca/mobile/pub/webcam/id/{cam_id_safe}.html"
 
         dist = _haversine_km(lat, lon, dest_lat, dest_lon)
         cameras.append(Webcam(

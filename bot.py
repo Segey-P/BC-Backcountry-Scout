@@ -659,7 +659,7 @@ class BotHandler:
         corridor = build_route_corridor(start_point, dest_point)
         try:
             fetched = await asyncio.wait_for(
-                run_all_fetchers(corridor, start_point, dest_point, watch["dest_name"]),
+                run_all_fetchers(corridor, start_point, dest_point, watch["dest_name"], focus=None),
                 timeout=30,
             )
         except Exception:

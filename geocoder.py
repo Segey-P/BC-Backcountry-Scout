@@ -123,6 +123,19 @@ def _in_bc(r: GeoResult) -> bool:
     return _BC_LAT_MIN <= r.lat <= _BC_LAT_MAX and _BC_LON_MIN <= r.lon <= _BC_LON_MAX
 
 
+def validate_coordinates(lat: float, lon: float) -> bool:
+    """Validate coordinates are within BC bounds and not NaN/Inf."""
+    try:
+        lat_f, lon_f = float(lat), float(lon)
+        return (
+            not (math.isnan(lat_f) or math.isnan(lon_f) or math.isinf(lat_f) or math.isinf(lon_f))
+            and _BC_LAT_MIN <= lat_f <= _BC_LAT_MAX
+            and _BC_LON_MIN <= lon_f <= _BC_LON_MAX
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 def _relevance_score(query: str, result: GeoResult) -> int:
     """Score result by query match quality. Higher is better."""
     query_lower = query.lower()
