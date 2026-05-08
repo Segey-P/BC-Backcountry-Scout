@@ -200,6 +200,64 @@ def assemble_report(
     return message
 
 
+def assemble_compact_offline_report(
+    destination_name: str,
+    start_name: str,
+    road_events: list[RoadEvent],
+    weather: Optional[WeatherReport],
+    fires: list[FireIncident],
+    advisories: list[Advisory],
+    eta: Optional[ETAResult] = None,
+    bans: list[FireBan] = None,
+) -> str:
+    """Generate compact text-only report for low-bandwidth conditions."""
+    lines = []
+    lines.append(f"OFFLINE SCOUT: {destination_name}")
+    lines.append(f"From: {start_name}")
+    lines.append("")
+
+    hazards = []
+    if road_events:
+        for event in road_events:
+            hazards.append(f"[ROAD] {event.headline}")
+    if fires:
+        for fire in fires:
+            hazards.append(f"[FIRE] {fire.name} ({fire.size_hectares:.0f}ha, {fire.distance_to_destination_km:.1f}km)")
+    if _is_fire_ban_season() and bans:
+        for ban in bans:
+            hazards.append(f"[BAN] {ban.fire_centre} - {ban.category}")
+    if _is_wildlife_season() and advisories:
+        for adv in advisories:
+            hazards.append(f"[WILDLIFE] {adv.summary}")
+
+    if hazards:
+        for h in hazards:
+            lines.append(h)
+    else:
+        lines.append("[OK] No immediate hazards detected")
+
+    lines.append("")
+    if weather and weather.current_temp is not None:
+        wind_str = f"{weather.current_wind:.0f} km/h" if weather.current_wind else "calm"
+        lines.append(f"Weather: {weather.current_temp:.0f}C, {wind_str}")
+        if weather.freezing_level:
+            lines.append(f"Freezing: {weather.freezing_level:.0f}m")
+        if weather.snowfall_24h and weather.snowfall_24h > 0:
+            lines.append(f"Snow today: {weather.snowfall_24h:.1f}cm")
+    else:
+        lines.append("Weather: UNAVAILABLE")
+
+    lines.append("")
+    if eta:
+        lines.append(f"Travel: {eta.distance_text} / {eta.duration_traffic_text}")
+    else:
+        lines.append("Travel: UNAVAILABLE")
+
+    lines.append("")
+    lines.append(f"Generated: {datetime.now(tz=_PACIFIC).strftime('%H:%M %Z')}")
+    return "\n".join(lines)
+
+
 def assemble_3day_report(
     destination_name: str,
     forecasts: list[DayForecast],

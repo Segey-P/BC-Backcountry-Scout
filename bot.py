@@ -21,6 +21,7 @@ from geocoder import geocode_destination
 from report_assembler import (
     assemble_3day_report,
     assemble_avalanche_report,
+    assemble_compact_offline_report,
     assemble_driving_report,
     assemble_fire_ban_report,
     assemble_report,
@@ -135,13 +136,14 @@ def _build_confirmation_keyboard(show_change_start: bool = True) -> InlineKeyboa
 
 def _build_post_report_keyboard(is_alpine: bool, focus: str | None = None) -> InlineKeyboardMarkup:
     new_btn = InlineKeyboardButton("🔄 Scout new destination", callback_data="ext_new")
+    offline_btn = InlineKeyboardButton("💾 Save Offline", callback_data="ext_offline")
     if focus:
         full_btn = InlineKeyboardButton("🌟 Full scout", callback_data="ext_full")
-        return InlineKeyboardMarkup([[full_btn], [new_btn]])
+        return InlineKeyboardMarkup([[full_btn], [offline_btn, new_btn]])
     row1 = [InlineKeyboardButton("📅 3-day forecast", callback_data="ext_3day")]
     if is_alpine:
         row1.append(InlineKeyboardButton("🏔️ Avalanche", callback_data="ext_avalanche"))
-    return InlineKeyboardMarkup([row1, [new_btn]])
+    return InlineKeyboardMarkup([row1, [offline_btn, new_btn]])
 
 
 class BotHandler:
@@ -423,6 +425,23 @@ class BotHandler:
                 avx = None
             report = assemble_avalanche_report(name, avx)
             await status.edit_text(report, parse_mode="HTML", disable_web_page_preview=True)
+
+        elif query.data == "ext_offline":
+            status = await query.message.reply_text("Generating offline report…")
+            data = await asyncio.to_thread(
+                run_all_fetchers, corridor, start_point, dest_point, name, focus=None
+            )
+            report = assemble_compact_offline_report(
+                destination_name=name,
+                start_name=start_name,
+                road_events=data["road_events"],
+                weather=data["weather"],
+                fires=data["fires"],
+                advisories=data["advisories"],
+                eta=data.get("eta"),
+                bans=data.get("bans"),
+            )
+            await status.edit_text(report)
 
     async def _on_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id

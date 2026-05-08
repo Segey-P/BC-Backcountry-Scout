@@ -2,10 +2,6 @@
 
 ## v1.5 Advanced Features Implementation
 
-### Compact "Offline" Report
-- [ ] Add "💾 Save Offline" button to the report message.
-- [ ] Implement function to generate a text-only, minimal report for weak signal conditions.
-
 ### Fire Bans (Network Issue)
 - [ ] Investigate why DataBC WFS and BCWS ArcGIS return 403 from Oracle Cloud — may need proxy or IP allowlisting.
 
@@ -18,3 +14,4 @@
 - [x] Geocoder accuracy — relevance scoring over distance bias
 - [x] Report clutter — single "No immediate hazards" line when nothing detected
 - [x] Peak Temperature Estimate (Lapse Rate) — +500m elevation estimate in Weather block (alpine only)
+- [x] Compact "Offline" Report — 💾 Save Offline button, text-only format for weak signal conditions
