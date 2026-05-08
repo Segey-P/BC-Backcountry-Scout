@@ -11,6 +11,8 @@ _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 _TIMEOUT = 5.0
 _ALPINE_ELEVATION_M = 1200
 _CACHE_TTL = 900  # 15 minutes
+_LAPSE_RATE = 6.5  # °C per 1000m elevation gain
+_PEAK_ELEVATION_GAIN_M = 500  # Estimate temp at +500m elevation
 
 _cache_state = {
     "weather": {"last_result": None, "last_time": 0, "last_coords": None},
@@ -45,6 +47,14 @@ class WeatherReport:
     is_alpine: bool = False
     sunrise: str | None = None
     sunset: str | None = None
+    peak_temp_estimate: float | None = None
+
+
+def _estimate_peak_temp(current_temp: float | None, elevation_m: float | None) -> float | None:
+    """Estimate temperature at +500m elevation using standard lapse rate."""
+    if current_temp is None or elevation_m is None or elevation_m <= _ALPINE_ELEVATION_M:
+        return None
+    return current_temp - (_PEAK_ELEVATION_GAIN_M / 1000.0) * _LAPSE_RATE
 
 
 def _fetch_solar_times_uncached(lat: float, lon: float) -> tuple[str | None, str | None]:
@@ -143,8 +153,11 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
 
     alerts = _fetch_ec_alerts(lat, lon)
 
+    current_temp = cw.get("temperature")
+    is_alpine = (elevation or 0) > _ALPINE_ELEVATION_M
+
     return WeatherReport(
-        current_temp=cw.get("temperature"),
+        current_temp=current_temp,
         current_wind=cw.get("windspeed"),
         current_precip=precips[0] if precips else None,
         forecast_24h=forecast_24h,
@@ -154,9 +167,10 @@ def _fetch_weather_uncached(lat: float, lon: float) -> WeatherReport:
         elevation=elevation,
         snowfall_24h=fresh_snow,
         wind_gusts=gusts[0] if gusts else None,
-        is_alpine=(elevation or 0) > _ALPINE_ELEVATION_M,
+        is_alpine=is_alpine,
         sunrise=sunrise,
         sunset=sunset,
+        peak_temp_estimate=_estimate_peak_temp(current_temp, elevation) if is_alpine else None,
     )
 
 

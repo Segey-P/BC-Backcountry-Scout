@@ -137,6 +137,8 @@ def assemble_report(
         if weather.is_alpine:
             if weather.snowfall_24h and weather.snowfall_24h > 0:
                 lines.append(f"New snow today: {weather.snowfall_24h:.1f}cm")
+            if weather.peak_temp_estimate is not None:
+                lines.append(f"At +500m: {weather.peak_temp_estimate:.0f}°C (lapse rate estimate)")
             if (
                 weather.elevation
                 and weather.freezing_level
