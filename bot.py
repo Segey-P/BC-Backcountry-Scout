@@ -428,22 +428,28 @@ class BotHandler:
 
         elif query.data == "ext_offline":
             status = await query.message.reply_text("Generating offline report…")
-            data = await asyncio.to_thread(
-                run_all_fetchers, corridor, start_point, dest_point, name, focus=None
-            )
-            report = assemble_compact_offline_report(
-                destination_name=name,
-                start_name=start_name,
-                road_events=data["road_events"],
-                weather=data["weather"],
-                fires=data["fires"],
-                advisories=data["advisories"],
-                eta=data.get("eta"),
-                bans=data.get("bans"),
-                dest_lat=dest_point[0],
-                dest_lon=dest_point[1],
-            )
-            await status.edit_text(report)
+            try:
+                data = await asyncio.wait_for(
+                    asyncio.to_thread(run_all_fetchers, corridor, start_point, dest_point, name, focus=None),
+                    timeout=60,
+                )
+                report = assemble_compact_offline_report(
+                    destination_name=name,
+                    start_name=start_name,
+                    road_events=data["road_events"],
+                    weather=data["weather"],
+                    fires=data["fires"],
+                    advisories=data["advisories"],
+                    eta=data.get("eta"),
+                    bans=data.get("bans"),
+                    dest_lat=dest_point[0],
+                    dest_lon=dest_point[1],
+                )
+                await status.edit_text(report)
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.error("offline report generation failed: %s", e)
+                await status.edit_text("❌ Offline report generation failed. Try again.")
+
 
     async def _on_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
