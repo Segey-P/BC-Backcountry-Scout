@@ -367,18 +367,18 @@ class BotHandler:
 
         lat, lon = last_dest["lat"], last_dest["lon"]
         name = last_dest["name"]
+        start = session.get("starting_point")
+        start_point = (start["lat"], start["lon"]) if start else _SQUAMISH_DEFAULT
+        start_name = start["name"] if start else "Squamish, BC"
+        dest_point = (lat, lon)
+        corridor = build_route_corridor(start_point, dest_point)
 
         if query.data == "ext_full":
             await query.edit_message_text(
                 "Upgrading to full scout…",
                 reply_markup=InlineKeyboardMarkup([]),
             )
-            start = session.get("starting_point")
-            start_point = (start["lat"], start["lon"]) if start else _SQUAMISH_DEFAULT
-            start_name = start["name"] if start else "Squamish, BC"
-            dest_point = (lat, lon)
-            corridor = build_route_corridor(start_point, dest_point)
-            
+
             data = await run_all_fetchers(corridor, start_point, dest_point, name, focus=None)
             is_alpine = data["weather"].is_alpine if data.get("weather") else False
             
