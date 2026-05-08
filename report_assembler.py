@@ -177,8 +177,6 @@ def assemble_report(
         lines.append("⚠️ Travel time unavailable (API error or timeout)")
     if road_events:
         lines.append("Monitor DriveBC for active events")
-    else:
-        lines.append("Highways open, normal flow")
     if webcam:
         lines.append(
             f'📷 <a href="{webcam.image_url}">{_e(webcam.name)}</a>'
