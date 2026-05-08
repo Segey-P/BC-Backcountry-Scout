@@ -8,7 +8,6 @@ from fetchers.aqhi import AirQualityReport, fetch_air_quality
 from fetchers.avalanche import AvalancheReport, fetch_avalanche
 from fetchers.bcparks import ParkAdvisory, fetch_park_advisories
 from fetchers.drivebc import RoadEvent, fetch_drivebc_events
-from fetchers.drivebc_webcam import Webcam, fetch_nearest_webcam
 from fetchers.eta import ETAResult, fetch_eta
 from fetchers.weather import DayForecast, WeatherReport, fetch_weather, fetch_weather_3day
 from fetchers.wildfire import FireBan, FireIncident, fetch_fire_bans, fetch_wildfire
@@ -71,7 +70,6 @@ def assemble_report(
     avalanche: Optional[AvalancheReport] = None,
     bans: list[FireBan] = None,
     aqhi: Optional[AirQualityReport] = None,
-    webcam: Optional[Webcam] = None,
     park_advisories: list[ParkAdvisory] = None,
 ) -> str:
     """Assemble a single Telegram HTML message from fetched data."""
@@ -177,11 +175,6 @@ def assemble_report(
         lines.append("⚠️ Travel time unavailable (API error or timeout)")
     if road_events:
         lines.append("Monitor DriveBC for active events")
-    if webcam:
-        lines.append(
-            f'📷 <a href="{webcam.image_url}">{_e(webcam.name)}</a>'
-            f" ({webcam.distance_km:.0f}km away)"
-        )
 
     lines.append("")
 
@@ -212,7 +205,6 @@ def assemble_compact_offline_report(
     avalanche: Optional["AvalancheReport"] = None,
     aqhi: Optional[AirQualityReport] = None,
     park_advisories: list[ParkAdvisory] = None,
-    webcam: Optional[Webcam] = None,
 ) -> str:
     """Generate full text-only report suitable for offline saving."""
     bans = bans or []
@@ -325,16 +317,6 @@ def assemble_compact_offline_report(
         lines.append("No active park advisories")
     lines.append("")
 
-    # Camera
-    lines.append("--- ROAD CAMERA ---")
-    if webcam:
-        lines.append(f"{webcam.name} ({webcam.distance_km:.0f}km away)")
-        lines.append(f"Image: {webcam.image_url}")
-        lines.append(f"Page: {webcam.page_url}")
-    else:
-        lines.append("No DriveBC camera within 30km")
-    lines.append("")
-
     lines.append(f"Generated: {datetime.now(tz=_PACIFIC).strftime('%Y-%m-%d %H:%M %Z')}")
     lines.append("Conditions change fast — verify before you go.")
     return "\n".join(lines)
@@ -432,7 +414,6 @@ def assemble_driving_report(
     start_name: str,
     road_events: list[RoadEvent],
     eta: Optional[ETAResult],
-    webcam: Optional[Webcam] = None,
 ) -> str:
     lines = [f"🚗 <b>Driving: {_e(start_name)} → {_e(destination_name)}</b>", ""]
 
@@ -447,12 +428,6 @@ def assemble_driving_report(
         lines.append(f"ETA: <b>{_e(eta.duration_traffic_text)}</b> with traffic ({_e(eta.distance_text)})")
     else:
         lines.append("⚠️ Travel time unavailable")
-
-    if webcam:
-        lines.append(
-            f'📷 <a href="{webcam.image_url}">{_e(webcam.name)}</a>'
-            f" ({webcam.distance_km:.0f}km away)"
-        )
 
     lines.append("")
     now = datetime.now(tz=_PACIFIC).strftime("%H:%M %Z")
@@ -538,7 +513,6 @@ async def run_all_fetchers(
         "avalanche": None,
         "bans": [],
         "aqhi": None,
-        "webcam": None,
         "park_advisories": [],
     }
 
@@ -569,7 +543,6 @@ async def run_all_fetchers(
     if focus in (None, "weather") and _is_aqhi_season():
         task_map["aqhi"] = asyncio.to_thread(fetch_air_quality, destination_point[0], destination_point[1])
     if focus in (None, "driving"):
-        task_map["webcam"] = asyncio.to_thread(fetch_nearest_webcam, destination_point)
         task_map["park_advisories"] = asyncio.to_thread(fetch_park_advisories, destination_point)
 
     keys = list(task_map.keys())
