@@ -6,7 +6,9 @@ from zoneinfo import ZoneInfo
 
 from fetchers.aqhi import AirQualityReport, fetch_air_quality
 from fetchers.avalanche import AvalancheReport, fetch_avalanche
+from fetchers.bcparks import ParkAdvisory, fetch_park_advisories
 from fetchers.drivebc import RoadEvent, fetch_drivebc_events
+from fetchers.drivebc_webcam import Webcam, fetch_nearest_webcam
 from fetchers.eta import ETAResult, fetch_eta
 from fetchers.weather import DayForecast, WeatherReport, fetch_weather, fetch_weather_3day
 from fetchers.wildfire import FireBan, FireIncident, fetch_fire_bans, fetch_wildfire
@@ -69,6 +71,8 @@ def assemble_report(
     avalanche: Optional[AvalancheReport] = None,
     bans: list[FireBan] = None,
     aqhi: Optional[AirQualityReport] = None,
+    webcam: Optional[Webcam] = None,
+    park_advisories: list[ParkAdvisory] = None,
 ) -> str:
     """Assemble a single Telegram HTML message from fetched data."""
 
@@ -98,6 +102,14 @@ def assemble_report(
     if _is_wildlife_season() and advisories:
         for adv in advisories:
             safety_alerts.append(f"🔔 {_e(adv.summary)} ({_e(adv.source)})")
+
+    if park_advisories:
+        for adv in park_advisories:
+            urgency_emoji = {1: "ℹ️", 2: "🔔", 3: "⚠️", 4: "🚨"}.get(adv.urgency_level, "🔔")
+            url_part = f' — <a href="{adv.url}">details</a>' if adv.url else ""
+            safety_alerts.append(
+                f"{urgency_emoji} <b>{_e(adv.park_name)}:</b> {_e(adv.title)}{url_part}"
+            )
 
     if _is_aqhi_season() and aqhi and aqhi.aqhi is not None and aqhi.aqhi >= 4:
         safety_alerts.append(f"{aqhi.emoji} <b>Air Quality:</b> {_e(aqhi.level)} (AQHI {aqhi.aqhi:.0f})")
@@ -165,6 +177,11 @@ def assemble_report(
         lines.append("Monitor DriveBC for active events")
     else:
         lines.append("Highways open, normal flow")
+    if webcam:
+        lines.append(
+            f'📷 <a href="{webcam.image_url}">{_e(webcam.name)}</a>'
+            f" ({webcam.distance_km:.0f}km away)"
+        )
 
     lines.append("")
 
@@ -273,6 +290,7 @@ def assemble_driving_report(
     start_name: str,
     road_events: list[RoadEvent],
     eta: Optional[ETAResult],
+    webcam: Optional[Webcam] = None,
 ) -> str:
     lines = [f"🚗 <b>Driving: {_e(start_name)} → {_e(destination_name)}</b>", ""]
 
@@ -287,6 +305,12 @@ def assemble_driving_report(
         lines.append(f"ETA: <b>{_e(eta.duration_traffic_text)}</b> with traffic ({_e(eta.distance_text)})")
     else:
         lines.append("⚠️ Travel time unavailable")
+
+    if webcam:
+        lines.append(
+            f'📷 <a href="{webcam.image_url}">{_e(webcam.name)}</a>'
+            f" ({webcam.distance_km:.0f}km away)"
+        )
 
     lines.append("")
     now = datetime.now(tz=_PACIFIC).strftime("%H:%M %Z")
@@ -372,6 +396,8 @@ async def run_all_fetchers(
         "avalanche": None,
         "bans": [],
         "aqhi": None,
+        "webcam": None,
+        "park_advisories": [],
     }
 
     async def _run(coro):
@@ -380,7 +406,7 @@ async def run_all_fetchers(
         except (asyncio.TimeoutError, Exception):
             return None
 
-    list_keys = {"road_events", "fires", "advisories", "weather_3day", "bans"}
+    list_keys = {"road_events", "fires", "advisories", "weather_3day", "bans", "park_advisories"}
 
     task_map = {}
     if focus in (None, "driving"):
@@ -400,6 +426,9 @@ async def run_all_fetchers(
         task_map["advisories"] = asyncio.to_thread(fetch_wildlife_news, corridor_polygon, destination_name)
     if focus in (None, "weather") and _is_aqhi_season():
         task_map["aqhi"] = asyncio.to_thread(fetch_air_quality, destination_point[0], destination_point[1])
+    if focus in (None, "driving"):
+        task_map["webcam"] = asyncio.to_thread(fetch_nearest_webcam, destination_point)
+        task_map["park_advisories"] = asyncio.to_thread(fetch_park_advisories, destination_point)
 
     keys = list(task_map.keys())
     fetched = await asyncio.gather(*[_run(task_map[k]) for k in keys])

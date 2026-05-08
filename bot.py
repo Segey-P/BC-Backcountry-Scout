@@ -281,6 +281,7 @@ class BotHandler:
                     start_name=pending["start_name"],
                     road_events=data["road_events"],
                     eta=data.get("eta"),
+                    webcam=data.get("webcam"),
                 )
             elif focus == "avalanche":
                 report = assemble_avalanche_report(
@@ -307,6 +308,8 @@ class BotHandler:
                     avalanche=data.get("avalanche"),
                     bans=data.get("bans"),
                     aqhi=data.get("aqhi"),
+                    webcam=data.get("webcam"),
+                    park_advisories=data.get("park_advisories"),
                 )
 
             is_alpine = data["weather"].is_alpine if data.get("weather") else False
@@ -388,6 +391,8 @@ class BotHandler:
                 avalanche=data.get("avalanche"),
                 bans=data.get("bans"),
                 aqhi=data.get("aqhi"),
+                webcam=data.get("webcam"),
+                park_advisories=data.get("park_advisories"),
             )
             
             await query.edit_message_text(
