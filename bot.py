@@ -321,6 +321,13 @@ class BotHandler:
                 reply_markup=_build_post_report_keyboard(is_alpine, focus=focus),
             )
 
+            webcam = data.get("webcam")
+            if webcam and focus in (None, "driving"):
+                await query.message.reply_photo(
+                    photo=webcam.image_url,
+                    caption=f"📷 {webcam.name} ({webcam.distance_km:.0f}km away)",
+                )
+
             session["last_destination"] = {
                 "name": pending["dest_name"],
                 "lat": pending["dest_lat"],
@@ -444,8 +451,18 @@ class BotHandler:
                     bans=data.get("bans"),
                     dest_lat=dest_point[0],
                     dest_lon=dest_point[1],
+                    avalanche=data.get("avalanche"),
+                    aqhi=data.get("aqhi"),
+                    park_advisories=data.get("park_advisories"),
+                    webcam=data.get("webcam"),
                 )
                 await status.edit_text(report)
+                webcam = data.get("webcam")
+                if webcam:
+                    await query.message.reply_photo(
+                        photo=webcam.image_url,
+                        caption=f"📷 {webcam.name} ({webcam.distance_km:.0f}km away)",
+                    )
             except (asyncio.TimeoutError, Exception) as e:
                 logger.error("offline report generation failed: %s", e)
                 await status.edit_text("❌ Offline report generation failed. Try again.")
