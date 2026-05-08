@@ -104,7 +104,7 @@ def _build_advisory_url(advisory: dict) -> str:
 
 def fetch_park_advisories(
     destination: tuple[float, float],
-    radius_km: float = 50.0,
+    radius_km: float = 20.0,
 ) -> list[ParkAdvisory]:
     """Return active BC Parks advisories within radius_km of destination."""
     dest_lat, dest_lon = destination
