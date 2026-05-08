@@ -209,55 +209,134 @@ def assemble_compact_offline_report(
     bans: list[FireBan] = None,
     dest_lat: float | None = None,
     dest_lon: float | None = None,
+    avalanche: Optional["AvalancheReport"] = None,
+    aqhi: Optional[AirQualityReport] = None,
+    park_advisories: list[ParkAdvisory] = None,
+    webcam: Optional[Webcam] = None,
 ) -> str:
-    """Generate compact text-only report for low-bandwidth conditions."""
+    """Generate full text-only report suitable for offline saving."""
+    bans = bans or []
+    park_advisories = park_advisories or []
+
     lines = []
-    lines.append(f"OFFLINE SCOUT: {destination_name}")
+    lines.append(f"=== BC SCOUT REPORT: {destination_name} ===")
     lines.append(f"From: {start_name}")
     if dest_lat is not None and dest_lon is not None:
         lines.append(f"Coordinates: {dest_lat:.4f}, {dest_lon:.4f}")
         lines.append(f"Map: https://maps.google.com/?q={dest_lat:.4f},{dest_lon:.4f}")
     lines.append("")
 
-    hazards = []
+    # Road conditions
+    lines.append("--- ROAD CONDITIONS ---")
     if road_events:
         for event in road_events:
-            hazards.append(f"[ROAD] {event.headline}")
-    if fires:
-        for fire in fires:
-            hazards.append(f"[FIRE] {fire.name} ({fire.size_hectares:.0f}ha, {fire.distance_to_destination_km:.1f}km)")
-    if _is_fire_ban_season() and bans:
-        for ban in bans:
-            hazards.append(f"[BAN] {ban.fire_centre} - {ban.category}")
-    if _is_wildlife_season() and advisories:
-        for adv in advisories:
-            hazards.append(f"[WILDLIFE] {adv.summary}")
-
-    if hazards:
-        for h in hazards:
-            lines.append(h)
+            lines.append(f"[{event.severity}] {event.headline}")
     else:
-        lines.append("[OK] No immediate hazards detected")
-
+        lines.append("No active road events on route")
     lines.append("")
+
+    # Travel time
+    lines.append("--- TRAVEL ---")
+    if eta:
+        lines.append(f"{eta.distance_text} / {eta.duration_traffic_text} with traffic")
+    else:
+        lines.append("UNAVAILABLE")
+    lines.append("")
+
+    # Weather
+    lines.append("--- WEATHER ---")
     if weather and weather.current_temp is not None:
         wind_str = f"{weather.current_wind:.0f} km/h" if weather.current_wind else "calm"
-        lines.append(f"Weather: {weather.current_temp:.0f}C, {wind_str}")
+        gusts_str = f", gusts {weather.wind_gusts:.0f} km/h" if weather.wind_gusts else ""
+        lines.append(f"Now: {weather.current_temp:.0f}C, {wind_str}{gusts_str}")
         if weather.freezing_level:
-            lines.append(f"Freezing: {weather.freezing_level:.0f}m")
+            lines.append(f"Freezing level: {weather.freezing_level:.0f}m")
         if weather.snowfall_24h and weather.snowfall_24h > 0:
-            lines.append(f"Snow today: {weather.snowfall_24h:.1f}cm")
+            lines.append(f"New snow today: {weather.snowfall_24h:.1f}cm")
+        if weather.sunset:
+            try:
+                sunset_time = datetime.fromisoformat(weather.sunset).time()
+                lines.append(f"Sunset: {sunset_time.strftime('%H:%M')}")
+            except (ValueError, AttributeError, TypeError):
+                pass
+        if weather.alerts:
+            for alert in weather.alerts[:2]:
+                lines.append(f"ALERT: {alert}")
     else:
-        lines.append("Weather: UNAVAILABLE")
-
+        lines.append("UNAVAILABLE")
     lines.append("")
-    if eta:
-        lines.append(f"Travel: {eta.distance_text} / {eta.duration_traffic_text}")
+
+    # Avalanche
+    lines.append("--- AVALANCHE ---")
+    if avalanche and avalanche.days:
+        today = avalanche.days[0]
+        if today.alpine.value == 0 and today.treeline.value == 0:
+            lines.append("No forecast issued — check avalanche.ca")
+        else:
+            lines.append(f"Alpine: {today.alpine.label} / Treeline: {today.treeline.label}")
+            lines.append("Full forecast: https://www.avalanche.ca")
     else:
-        lines.append("Travel: UNAVAILABLE")
-
+        lines.append("No forecast (out of season or unavailable)")
     lines.append("")
-    lines.append(f"Generated: {datetime.now(tz=_PACIFIC).strftime('%H:%M %Z')}")
+
+    # Wildfires
+    lines.append("--- WILDFIRES ---")
+    if fires:
+        for fire in fires:
+            lines.append(f"{fire.name}: {fire.size_hectares:.0f}ha, {fire.distance_to_destination_km:.1f}km away")
+    else:
+        lines.append("No active wildfires near route")
+    lines.append("")
+
+    # Fire bans
+    lines.append("--- FIRE BANS ---")
+    if bans:
+        for ban in bans:
+            lines.append(f"{ban.fire_centre}: {ban.category}")
+    else:
+        lines.append("No fire bans in effect")
+    lines.append("")
+
+    # Air quality
+    lines.append("--- AIR QUALITY ---")
+    if aqhi and aqhi.aqhi is not None:
+        lines.append(f"AQHI: {aqhi.aqhi:.0f} — {aqhi.level}")
+    else:
+        lines.append("UNAVAILABLE (out of season or no data)")
+    lines.append("")
+
+    # Wildlife
+    lines.append("--- WILDLIFE ---")
+    if advisories:
+        for adv in advisories:
+            lines.append(f"{adv.summary} ({adv.source})")
+    else:
+        lines.append("No active wildlife advisories")
+    lines.append("")
+
+    # Park advisories
+    lines.append("--- PARK ADVISORIES ---")
+    if park_advisories:
+        for adv in park_advisories:
+            lines.append(f"{adv.park_name}: {adv.title}")
+            if adv.url:
+                lines.append(f"  Details: {adv.url}")
+    else:
+        lines.append("No active park advisories")
+    lines.append("")
+
+    # Camera
+    lines.append("--- ROAD CAMERA ---")
+    if webcam:
+        lines.append(f"{webcam.name} ({webcam.distance_km:.0f}km away)")
+        lines.append(f"Image: {webcam.image_url}")
+        lines.append(f"Page: {webcam.page_url}")
+    else:
+        lines.append("No DriveBC camera within 30km")
+    lines.append("")
+
+    lines.append(f"Generated: {datetime.now(tz=_PACIFIC).strftime('%Y-%m-%d %H:%M %Z')}")
+    lines.append("Conditions change fast — verify before you go.")
     return "\n".join(lines)
 
 
