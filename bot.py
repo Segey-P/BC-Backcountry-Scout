@@ -385,6 +385,7 @@ class BotHandler:
                 advisories=data["advisories"],
                 eta=data.get("eta"),
                 avalanche=data.get("avalanche"),
+                bans=data.get("bans"),
             )
             
             await query.edit_message_text(
