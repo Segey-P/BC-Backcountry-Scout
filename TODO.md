@@ -3,7 +3,10 @@
 ## v1.5 Advanced Features Implementation
 
 ### Fire Bans (Network Issue)
-- [ ] Investigate why DataBC WFS and BCWS ArcGIS return 403 from Oracle Cloud — may need proxy or IP allowlisting.
+- [x] Investigate 403 errors from Oracle Cloud on BC gov endpoints — documented in TROUBLESHOOTING.md
+  - Root cause: IP reputation filtering by BC gov services
+  - Recommended: Contact BC government OGC to allowlist Oracle Cloud IP/ASN ranges
+  - Current: Graceful degradation (fire bans return empty, no errors)
 
 ## Completed in v1.5
 
