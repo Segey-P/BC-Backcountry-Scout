@@ -4,6 +4,7 @@ from datetime import date, datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from fetchers.aqhi import AirQualityReport, fetch_air_quality
 from fetchers.avalanche import AvalancheReport, fetch_avalanche
 from fetchers.drivebc import RoadEvent, fetch_drivebc_events
 from fetchers.eta import ETAResult, fetch_eta
@@ -30,6 +31,12 @@ def _is_wildlife_season() -> bool:
     """Wildlife advisories are relevant Apr 1 – Nov 30."""
     m = date.today().month
     return 4 <= m <= 11
+
+
+def _is_aqhi_season() -> bool:
+    """Air quality health index is relevant Apr 1 – Oct 31."""
+    m = date.today().month
+    return 4 <= m <= 10
 
 
 def _e(value) -> str:
@@ -61,6 +68,7 @@ def assemble_report(
     eta: Optional[ETAResult] = None,
     avalanche: Optional[AvalancheReport] = None,
     bans: list[FireBan] = None,
+    aqhi: Optional[AirQualityReport] = None,
 ) -> str:
     """Assemble a single Telegram HTML message from fetched data."""
 
@@ -72,34 +80,32 @@ def assemble_report(
 
     lines.append("🛡️ <b>Safety</b>")
 
+    safety_alerts = []
     if road_events:
         for event in road_events:
-            lines.append(f"⚠️ {_e(event.headline)}")
-    else:
-        lines.append("✅ No major road events")
+            safety_alerts.append(f"⚠️ {_e(event.headline)}")
 
     if fires:
         for fire in fires:
-            lines.append(
+            safety_alerts.append(
                 f"🔥 {_e(fire.name)} ({fire.size_hectares:.0f}ha, {fire.distance_to_destination_km:.1f}km away)"
             )
+
+    if _is_fire_ban_season() and bans:
+        for ban in bans:
+            safety_alerts.append(f"🚫 <b>Fire Ban:</b> {_e(ban.fire_centre)} ({_e(ban.category)})")
+
+    if _is_wildlife_season() and advisories:
+        for adv in advisories:
+            safety_alerts.append(f"🔔 {_e(adv.summary)} ({_e(adv.source)})")
+
+    if _is_aqhi_season() and aqhi and aqhi.aqhi is not None and aqhi.aqhi >= 4:
+        safety_alerts.append(f"{aqhi.emoji} <b>Air Quality:</b> {_e(aqhi.level)} (AQHI {aqhi.aqhi:.0f})")
+
+    if safety_alerts:
+        lines.extend(safety_alerts)
     else:
-        lines.append("✅ No active wildfires nearby")
-
-    if _is_fire_ban_season():
-        if bans:
-            # We just show a summary in the main report
-            for ban in bans:
-                lines.append(f"🚫 <b>Fire Ban:</b> {_e(ban.fire_centre)} ({_e(ban.category)})")
-        else:
-            lines.append("✅ No fire bans in effect")
-
-    if _is_wildlife_season():
-        if advisories:
-            for adv in advisories:
-                lines.append(f"🔔 {_e(adv.summary)} ({_e(adv.source)})")
-        else:
-            lines.append("✅ No wildlife advisories")
+        lines.append("✅ No immediate hazards or alerts")
 
     lines.append("")
 
@@ -365,6 +371,7 @@ async def run_all_fetchers(
         "eta": None,
         "avalanche": None,
         "bans": [],
+        "aqhi": None,
     }
 
     async def _run(coro):
@@ -391,6 +398,8 @@ async def run_all_fetchers(
         task_map["bans"] = asyncio.to_thread(fetch_fire_bans, destination_point)
     if focus in (None, "wildlife") and _is_wildlife_season():
         task_map["advisories"] = asyncio.to_thread(fetch_wildlife_news, corridor_polygon, destination_name)
+    if focus in (None, "weather") and _is_aqhi_season():
+        task_map["aqhi"] = asyncio.to_thread(fetch_air_quality, destination_point[0], destination_point[1])
 
     keys = list(task_map.keys())
     fetched = await asyncio.gather(*[_run(task_map[k]) for k in keys])

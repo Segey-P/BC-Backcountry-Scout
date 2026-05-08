@@ -306,6 +306,7 @@ class BotHandler:
                     eta=data.get("eta"),
                     avalanche=data.get("avalanche"),
                     bans=data.get("bans"),
+                    aqhi=data.get("aqhi"),
                 )
 
             is_alpine = data["weather"].is_alpine if data.get("weather") else False
@@ -386,6 +387,7 @@ class BotHandler:
                 eta=data.get("eta"),
                 avalanche=data.get("avalanche"),
                 bans=data.get("bans"),
+                aqhi=data.get("aqhi"),
             )
             
             await query.edit_message_text(
