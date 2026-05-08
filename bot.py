@@ -379,7 +379,7 @@ class BotHandler:
                 reply_markup=InlineKeyboardMarkup([]),
             )
 
-            data = await run_all_fetchers(corridor, start_point, dest_point, name, focus=None)
+            data = await asyncio.to_thread(run_all_fetchers, corridor, start_point, dest_point, name, focus=None)
             is_alpine = data["weather"].is_alpine if data.get("weather") else False
             
             report = assemble_report(
