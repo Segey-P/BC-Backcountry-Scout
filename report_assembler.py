@@ -207,11 +207,16 @@ def assemble_compact_offline_report(
     advisories: list[Advisory],
     eta: Optional[ETAResult] = None,
     bans: list[FireBan] = None,
+    dest_lat: float | None = None,
+    dest_lon: float | None = None,
 ) -> str:
     """Generate compact text-only report for low-bandwidth conditions."""
     lines = []
     lines.append(f"OFFLINE SCOUT: {destination_name}")
     lines.append(f"From: {start_name}")
+    if dest_lat is not None and dest_lon is not None:
+        lines.append(f"Destination: {dest_lat:.4f}, {dest_lon:.4f}")
+        lines.append(f"Map: https://maps.google.com/?q={dest_lat:.4f},{dest_lon:.4f}")
     lines.append("")
 
     hazards = []

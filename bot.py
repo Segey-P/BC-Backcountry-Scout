@@ -440,6 +440,8 @@ class BotHandler:
                 advisories=data["advisories"],
                 eta=data.get("eta"),
                 bans=data.get("bans"),
+                dest_lat=dest_point[0],
+                dest_lon=dest_point[1],
             )
             await status.edit_text(report)
 
