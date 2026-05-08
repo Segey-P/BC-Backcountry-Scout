@@ -2,7 +2,7 @@ name: Update DriveBC Webcam Data
 
 on:
   schedule:
-    - cron: '0 10 * * *'  # Daily at 10:00 UTC (3am Pacific)
+    - cron: '0 3 1 * *'  # 1st of each month at 03:00 UTC (8pm Pacific)
   workflow_dispatch:       # Allow manual trigger from GitHub UI
 
 jobs:
