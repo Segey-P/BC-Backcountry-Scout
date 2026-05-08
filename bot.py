@@ -379,7 +379,7 @@ class BotHandler:
                 reply_markup=InlineKeyboardMarkup([]),
             )
 
-            data = await asyncio.to_thread(run_all_fetchers, corridor, start_point, dest_point, name, focus=None)
+            data = await run_all_fetchers(corridor, start_point, dest_point, name, focus=None)
             is_alpine = data["weather"].is_alpine if data.get("weather") else False
             
             report = assemble_report(
@@ -430,7 +430,7 @@ class BotHandler:
             status = await query.message.reply_text("Generating offline report…")
             try:
                 data = await asyncio.wait_for(
-                    asyncio.to_thread(run_all_fetchers, corridor, start_point, dest_point, name, focus=None),
+                    run_all_fetchers(corridor, start_point, dest_point, name, focus=None),
                     timeout=60,
                 )
                 report = assemble_compact_offline_report(
