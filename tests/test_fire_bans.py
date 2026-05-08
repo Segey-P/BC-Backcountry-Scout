@@ -42,14 +42,27 @@ def test_fetch_fire_bans_inside():
 def test_fetch_fire_bans_outside():
     # Squamish-ish coords
     squamish = (49.7, -123.1)
-    # Polygon far away
+    # ArcGIS does spatial filtering server-side; simulate it returning nothing for outside points.
+    # WFS fallback is not reached when ArcGIS succeeds with empty list.
+    empty_response = _mock_response([])
+
+    with patch("fetchers.wildfire.httpx.get", return_value=empty_response):
+        results = fetch_fire_bans(squamish)
+
+    assert len(results) == 0
+
+def test_fetch_fire_bans_wfs_fallback_filters_outside():
+    """WFS fallback does client-side geometry check when ArcGIS fails."""
+    from fetchers.wildfire import _fetch_fire_bans_wfs
+    squamish = (49.7, -123.1)
     coords = [[[-122.1, 50.2], [-121.8, 50.2], [-121.8, 50.0], [-122.1, 50.0], [-122.1, 50.2]]]
     features = [_make_ban_feature(coords)]
-    
+
     with patch("fetchers.wildfire.httpx.get", return_value=_mock_response(features)):
-        results = fetch_fire_bans(squamish)
-    
+        results = _fetch_fire_bans_wfs(*squamish)
+
     assert len(results) == 0
+
 
 def test_assemble_fire_ban_report_with_bans():
     bans = [
