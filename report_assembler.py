@@ -216,6 +216,7 @@ def assemble_compact_offline_report(
     lines.append(f"From: {start_name}")
     if dest_lat is not None and dest_lon is not None:
         lines.append(f"Coordinates: {dest_lat:.4f}, {dest_lon:.4f}")
+        lines.append(f"Map: https://maps.google.com/?q={dest_lat:.4f},{dest_lon:.4f}")
     lines.append("")
 
     hazards = []
