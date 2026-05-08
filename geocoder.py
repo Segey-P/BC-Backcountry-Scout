@@ -123,6 +123,36 @@ def _in_bc(r: GeoResult) -> bool:
     return _BC_LAT_MIN <= r.lat <= _BC_LAT_MAX and _BC_LON_MIN <= r.lon <= _BC_LON_MAX
 
 
+def _relevance_score(query: str, result: GeoResult) -> int:
+    """Score result by query match quality. Higher is better."""
+    query_lower = query.lower()
+    result_lower = result.name.lower()
+    query_words = query_lower.split()
+    result_words = result_lower.split()
+
+    # Exact name match is best (e.g., query "Whistler" = result "Whistler")
+    if result_lower == query_lower:
+        return 1000
+
+    # Prefix match is very good (e.g., query "Whistler" matches result "Whistler Valley")
+    if result_lower.startswith(query_lower + " ") or result_lower.startswith(query_lower):
+        return 900
+
+    # All query words appear in result name (e.g., "city of richmond" matches "City of Richmond")
+    matching_words = sum(1 for qw in query_words if qw in result_words)
+    if matching_words == len(query_words) and matching_words > 0:
+        # Prefer results where query words appear in same order
+        if all(result_lower.find(qw) >= 0 for qw in query_words):
+            return 800 + matching_words * 10
+
+    # Partial match: some query words in result (e.g., "richmond" matches "Richmond Island")
+    if matching_words > 0:
+        return 100 + matching_words * 10
+
+    # No meaningful match
+    return 0
+
+
 def geocode_destination(
     query: str,
     bias_point: tuple[float, float] = SQUAMISH_DEFAULT,
@@ -133,7 +163,12 @@ def geocode_destination(
     # Merge and deduplicate
     combined = _deduplicate(google_results + gnws_results)
 
-    # Rank by haversine distance to bias point
-    combined.sort(key=lambda r: _haversine_km((r.lat, r.lon), bias_point))
+    # Rank by query relevance, with distance as tiebreaker for equal scores
+    combined.sort(
+        key=lambda r: (
+            -_relevance_score(query, r),  # Sort by relevance score (descending)
+            _haversine_km((r.lat, r.lon), bias_point),  # Tiebreaker: distance (ascending)
+        )
+    )
 
     return combined[:3]

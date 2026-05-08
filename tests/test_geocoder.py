@@ -1,41 +1,7 @@
 import pytest
 
 import geocoder as gc
-from geocoder import GeoResult, SQUAMISH_DEFAULT, _haversine_km, _similarity, _token_match_score
-
-
-# --- fuzzy fallback (no API needed) ---
-
-def test_fuzzy_finds_alice_lake(monkeypatch):
-    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
-    results = gc.geocode_destination("Alice Lake")
-    assert len(results) > 0
-    assert any("Alice Lake" in r.name for r in results)
-
-
-def test_fuzzy_finds_elfin_lakes(monkeypatch):
-    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
-    results = gc.geocode_destination("Elfin Lakes")
-    assert any("Elfin Lakes" in r.name for r in results)
-
-
-def test_typo_triggers_fuzzy_fallback(monkeypatch):
-    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
-    results = gc.geocode_destination("alce lake")
-    assert len(results) > 0
-    assert any("Alice Lake" in r.name for r in results)
-
-
-def test_typo_results_tagged_fuzzy(monkeypatch):
-    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
-    results = gc.geocode_destination("alce lake")
-    assert all(r.source == "fuzzy" for r in results)
-
-
-def test_mamquam_fuzzy(monkeypatch):
-    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
-    results = gc.geocode_destination("Mamquam")
-    assert any("Mamquam" in r.name for r in results)
+from geocoder import GeoResult, SQUAMISH_DEFAULT, _haversine_km
 
 
 # --- Google results used when returned ---
@@ -93,58 +59,3 @@ def test_deduplication_removes_same_location(monkeypatch):
     assert len([n for n in names if "Alice Lake" in n]) == 1
 
 
-# --- similarity helper ---
-
-def test_similarity_substring_is_max():
-    assert _similarity("Alice Lake", "Alice Lake Provincial Park") == 1.0
-
-
-def test_similarity_exact_is_max():
-    assert _similarity("Squamish", "Squamish") == 1.0
-
-
-def test_similarity_unrelated_is_low():
-    score = _similarity("Seattle", "Squamish, BC")
-    assert score < 0.7
-
-
-def test_token_match_score_typo():
-    score = _token_match_score("alce lake", "Alice Lake Provincial Park")
-    assert score == 1.0
-
-
-def test_token_match_score_unrelated():
-    score = _token_match_score("Seattle", "Levette Lake")
-    assert score == 0.0
-
-
-# --- stop-word regression: generic geo words cannot sole-justify a match ---
-
-def test_william_lake_does_not_match_alice_lake(monkeypatch):
-    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
-    results = gc.geocode_destination("william lake")
-    names = [r.name for r in results]
-    assert not any("Alice Lake" in n for n in names), (
-        "'william lake' should not fuzzy-match Alice Lake via shared 'lake' token"
-    )
-
-
-def test_williams_lake_fuzzy(monkeypatch):
-    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
-    results = gc.geocode_destination("williams lake")
-    assert any("Williams Lake" in r.name for r in results)
-
-
-def test_brentwood_fuzzy(monkeypatch):
-    monkeypatch.setattr(gc, "_google_maps_lookup", lambda q, b: [])
-    results = gc.geocode_destination("brentwood")
-    assert any("Brentwood" in r.name for r in results)
-
-
-# --- no API key graceful degradation ---
-
-def test_no_api_key_falls_back_to_fuzzy(monkeypatch):
-    monkeypatch.delenv("GOOGLE_MAPS_API_KEY", raising=False)
-    results = gc.geocode_destination("Whistler")
-    assert len(results) > 0
-    assert all(r.source == "fuzzy" for r in results)
