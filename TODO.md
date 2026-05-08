@@ -1,4 +1,4 @@
-# BC Backcountry Scout — TODO
+# BC Backcountry Scout — Status & Next Steps
 
 ## v1.5 Advanced Features Implementation
 
