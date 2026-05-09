@@ -1,3 +1,4 @@
+from __future__ import annotations
 import asyncio
 import html
 from datetime import date, datetime

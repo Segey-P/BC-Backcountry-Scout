@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import httpx
 from shapely.geometry import shape, Point
+from datetime import date, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +28,46 @@ _FIREBANS_WFS_BASE = (
     "&typeName=pub:WHSE_LAND_AND_NATURAL_RESOURCE.PROT_BANS_AND_PROHIBITIONS_SP"
     "&outputFormat=json&srsName=EPSG:4326"
 )
+<<<<<<< Updated upstream
 _TIMEOUT = 3.0
 _FIREBANS_TIMEOUT = 10.0
+=======
+_FIRE_CENTRES_URL = (
+    "https://openmaps.gov.bc.ca/geo/pub/wfs"
+    "?service=WFS&version=2.0.0&request=GetFeature"
+    "&typeName=pub:WHSE_LEGAL_ADMIN_BOUNDARIES.DRP_MOF_FIRE_CENTRES_SP"
+    "&outputFormat=json&srsName=EPSG:4326"
+)
+_TIMEOUT = 5.0
+>>>>>>> Stashed changes
 _NEARBY_KM = 25
 
+# Global cache for Fire Centre polygons
+_FIRE_CENTRES_CACHE = []
+
+def _load_fire_centres():
+    global _FIRE_CENTRES_CACHE
+    if _FIRE_CENTRES_CACHE:
+        return _FIRE_CENTRES_CACHE
+    try:
+        response = httpx.get(_FIRE_CENTRES_URL, timeout=_TIMEOUT)
+        response.raise_for_status()
+        features = response.json().get("features") or []
+        for f in features:
+            geom = f.get("geometry")
+            name = f.get("properties", {}).get("MOF_FIRE_CENTRE_NAME")
+            if geom and name:
+                _FIRE_CENTRES_CACHE.append({"name": name, "shape": shape(geom)})
+    except Exception:
+        pass
+    return _FIRE_CENTRES_CACHE
+
+def _get_fire_centre_for_point(lat: float, lon: float) -> str | None:
+    p = Point(lon, lat)
+    for fc in _load_fire_centres():
+        if fc["shape"].intersects(p):
+            return fc["name"]
+    return None
 
 @dataclass
 class FireIncident:
@@ -51,6 +88,7 @@ class FireBan:
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+# ... (keeping existing _haversine_km, _centroid_latlon, _distance_to_destination, _intersects_corridor, _parse_incident, fetch_wildfire unchanged)
     r = 6371
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
@@ -125,6 +163,7 @@ def fetch_wildfire(
     return results
 
 
+<<<<<<< Updated upstream
 def _parse_ban_feature(props: dict) -> FireBan:
     return FireBan(
         description=props.get("ACCESS_PROHIBITION_DESCRIPTION") or props.get("PROHIBITION_DESCRIPTION") or "Unknown prohibition",
@@ -145,6 +184,16 @@ def _fetch_fire_bans_arcgis(lat: float, lon: float) -> list[FireBan] | None:
         "outFields": "*",
         "f": "geojson",
     }
+=======
+def fetch_fire_bans(destination: tuple[float, float]) -> list[FireBan]:
+    """Return active fire restriction/ban details for the destination."""
+    dest_lat, dest_lon = destination
+    dest_point = Point(dest_lon, dest_lat)
+    
+    # Identify destination's fire centre to match centre-wide bans
+    dest_fire_centre = _get_fire_centre_for_point(dest_lat, dest_lon)
+    
+>>>>>>> Stashed changes
     try:
         response = httpx.get(_FIREBANS_ARCGIS_BASE, params=params, timeout=_FIREBANS_TIMEOUT)
         response.raise_for_status()
@@ -182,6 +231,7 @@ def _fetch_fire_bans_wfs(lat: float, lon: float) -> list[FireBan]:
         logger.warning("fire_bans WFS fetch failed: %s", exc)
         return []
 
+<<<<<<< Updated upstream
 
 def fetch_fire_bans(destination: tuple[float, float]) -> list[FireBan]:
     """Return active fire bans/restrictions covering the destination point."""
@@ -190,3 +240,53 @@ def fetch_fire_bans(destination: tuple[float, float]) -> list[FireBan]:
     if result is None:
         result = _fetch_fire_bans_wfs(lat, lon)
     return result
+=======
+    today = date.today()
+    bans = []
+    for feature in features:
+        geom = feature.get("geometry")
+        props = feature.get("properties") or {}
+        if not geom:
+            continue
+            
+        # 1. Check if ban is already effective
+        eff_date_str = props.get("ACCESS_STATUS_EFFECTIVE_DATE")
+        if eff_date_str:
+            try:
+                # Format: 2026-05-07Z or 2026-05-07
+                date_part = eff_date_str.split("T")[0].split("Z")[0]
+                eff_date = datetime.strptime(date_part, "%Y-%m-%d").date()
+                if eff_date > today:
+                    continue
+            except (ValueError, IndexError):
+                pass
+
+        # 2. Match logic
+        is_spatial_match = False
+        try:
+            ban_shape = shape(geom)
+            is_spatial_match = ban_shape.intersects(dest_point)
+        except Exception:
+            pass
+            
+        ban_centre = props.get("FIRE_CENTRE_NAME") or ""
+        # Handle cases where names might slightly differ (e.g. "Coastal" vs "Coastal Fire Centre")
+        is_centre_match = False
+        if dest_fire_centre and ban_centre:
+            if ban_centre.lower() in dest_fire_centre.lower() or dest_fire_centre.lower() in ban_centre.lower():
+                # For centre-wide match, we also check if it's a "Full Prohibition" 
+                # or if the user mentioned it specifically.
+                if props.get("TYPE") == "Full Prohibition":
+                    is_centre_match = True
+
+        if is_spatial_match or is_centre_match:
+            bans.append(FireBan(
+                description=props.get("ACCESS_PROHIBITION_DESCRIPTION") or "Unknown prohibition",
+                fire_centre=ban_centre or "Unknown Centre",
+                bulletin_url=props.get("BULLETIN_URL") or "https://bcwildfire.ca",
+                category=props.get("CATEGORY") or "N/A",
+                type=props.get("TYPE") or "Restriction",
+            ))
+            
+    return bans
+>>>>>>> Stashed changes

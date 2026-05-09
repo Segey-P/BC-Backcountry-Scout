@@ -39,9 +39,12 @@ def test_fetch_fire_bans_inside():
     assert results[0].fire_centre == "Coastal"
     assert "Category 2, 3" in results[0].description
 
-def test_fetch_fire_bans_outside():
-    # Squamish-ish coords
+def test_fetch_fire_bans_outside_spatial_but_centre_wide():
+    # A point slightly outside the provided polygon but in the same Fire Centre
+    # Squamish is Coastal. 
+    # Mock Fire Centre lookup to return Coastal.
     squamish = (49.7, -123.1)
+<<<<<<< Updated upstream
     # ArcGIS does spatial filtering server-side; simulate it returning nothing for outside points.
     # WFS fallback is not reached when ArcGIS succeeds with empty list.
     empty_response = _mock_response([])
@@ -61,6 +64,33 @@ def test_fetch_fire_bans_wfs_fallback_filters_outside():
     with patch("fetchers.wildfire.httpx.get", return_value=_mock_response(features)):
         results = _fetch_fire_bans_wfs(*squamish)
 
+=======
+    
+    # Polygon far away
+    coords = [[[-128.0, 52.0], [-125.0, 52.0], [-125.0, 51.0], [-128.0, 51.0], [-128.0, 52.0]]]
+    
+    # Feature is Full Prohibition for Coastal
+    feature = _make_ban_feature(coords, fire_centre="Coastal")
+    feature["properties"]["TYPE"] = "Full Prohibition"
+    
+    with patch("fetchers.wildfire._get_fire_centre_for_point", return_value="Coastal Fire Centre"):
+        with patch("fetchers.wildfire.httpx.get", return_value=_mock_response([feature])):
+            results = fetch_fire_bans(squamish)
+    
+    # Even if outside polygon, it matches because it's a Full Prohibition in the same centre
+    assert len(results) == 1
+    assert results[0].fire_centre == "Coastal"
+
+def test_fetch_fire_bans_future_effective():
+    whistler = (50.11, -122.95)
+    coords = [[[-123.1, 50.2], [-122.8, 50.2], [-122.8, 50.0], [-123.1, 50.0], [-123.1, 50.2]]]
+    feature = _make_ban_feature(coords)
+    feature["properties"]["ACCESS_STATUS_EFFECTIVE_DATE"] = "2099-01-01Z"
+    
+    with patch("fetchers.wildfire.httpx.get", return_value=_mock_response([feature])):
+        results = fetch_fire_bans(whistler)
+    
+>>>>>>> Stashed changes
     assert len(results) == 0
 
 
